@@ -61,7 +61,7 @@ class OTP(models.Model):
     
     def send_otp_to_user(self) -> None:
         '''Send the OTP to the user'''
-        msg = f'Welcome to the Destination Experience App.\n\nYour OTP is {self.otp}\n\nRegards,\nDXP Team'
+        msg = f'Welcome to Oysloe Market Place.\n\nYour OTP is {self.otp}\n\nRegards,\Oysloe Team'
         send_mail([self.email], 'OTP', msg)
 
     def __str__(self):

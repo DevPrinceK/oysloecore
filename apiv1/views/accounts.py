@@ -8,11 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import OTP, User
-from apis.models import ChatRoom, FriendRequest
-from apis.serializers import (ChangePasswordSerializer, CreateUserSerializer, LoginSerializer, RegisterUserSerializer, ResetPasswordSerializer,
-                              UserSerializer)
-from notifications.utils import send_push_notification
-
+from apiv1.serializers import LoginSerializer, RegisterUserSerializer, UserSerializer
 
 class LoginAPI(APIView):
     '''Login api endpoint'''
