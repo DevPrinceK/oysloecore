@@ -1,10 +1,9 @@
 from pyfcm import FCMNotification
 from .models import FCMDevice
 
-# push_service = FCMNotification(api_key="YOUR_SERVER_KEY")
 push_service = FCMNotification(
-    service_account_file="notifications/dxpmobile.json",
-    project_id="dxpmobile"
+    service_account_file="notifications/oysloemobile.json",
+    project_id="oysloemobile"
 )
 
 def send_push_notification(user, title, message):
@@ -30,3 +29,14 @@ def send_push_notification(user, title, message):
     print(f"Push notification sent to {len(registration_ids)} devices: {result}")
 
     return result
+
+
+
+
+def send_mail(receipient: list, subject: str, message: str) -> None:
+    """
+    Send an email
+    """
+    print("Email Sent To... ", receipient)
+    print("Subject: ", subject)
+    print("Message: ", message)

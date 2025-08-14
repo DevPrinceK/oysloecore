@@ -12,6 +12,8 @@ from django.utils import timezone
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
 
+from notifications.utils import send_mail
+
 from .manager import AccountManager
 
 
@@ -47,6 +49,28 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.name
+    
+
+class Wallet(models.Model):
+    '''Wallet model for storing user wallet information'''
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def deposit(self, amount: float) -> None:
+        '''Deposit money into the wallet'''
+        self.balance += amount
+        self.save()
+
+    def withdraw(self, amount: float) -> None:
+        '''Withdraw money from the wallet'''
+        self.balance -= amount
+        self.save()
+
+    def __str__(self):
+        return f"{self.user.name}'s Wallet"
+
 
 class OTP(models.Model):
     '''One Time Password model'''
