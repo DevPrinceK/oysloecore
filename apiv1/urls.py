@@ -22,3 +22,11 @@ urlpatterns += [
     # NOTE to get list of chatrooms, use websocket endpoint /ws/chats/
     path('chatroomid/', views.GetChatroomIdAPI.as_view(), name='get_chatroom_id'),
 ]
+
+# products related
+urlpatterns += [
+    path('categories/', views.CategoriesAPIView.as_view(), name='categories'),
+    path('subcategories/', views.SubCategoriesAPIView.as_view(), name='subcategories'),
+    path('products/', views.ProductsAPI.as_view(), name='products'),
+    path('relatedproducts/', views.RelatedProductsAPI.as_view(), name='related_products'),
+]

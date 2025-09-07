@@ -2,6 +2,7 @@ from django.contrib.auth import authenticate
 from rest_framework import serializers
 
 from accounts.models import User
+from apiv1.models import Category, Product, Product, SubCategory
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -98,3 +99,23 @@ class ResetPasswordSerializer(serializers.Serializer):
         if not User.objects.filter(email=data.get('email')).exists():
             raise serializers.ValidationError("Email does not exist")
         return data
+    
+class CategorySerializer(serializers.Serializer):
+    '''Serializer for product categories'''
+    class Meta:
+        model = Category
+        fields = "__all__"
+
+class SubCategorySerializer(serializers.ModelSerializer):
+    '''Serializer for product sub-categories'''
+
+    class Meta:
+        model = SubCategory
+        fields = "__all__"
+
+class ProductSerializer(serializers.ModelSerializer):
+    '''Serializer for products'''
+
+    class Meta:
+        model = Product
+        fields = "__all__"
