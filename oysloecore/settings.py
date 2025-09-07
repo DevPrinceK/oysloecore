@@ -34,8 +34,8 @@ INSTALLED_APPS = [
     'knox',
 
     # internal
-    'apiv1.apps.ApiV1Config',
-    'account.apps.AccountConfig',
+    'accounts.apps.AccountsConfig',
+    'apiv1.apps.Apiv1Config',
     'notifications.apps.NotificationsConfig',
 ]
 

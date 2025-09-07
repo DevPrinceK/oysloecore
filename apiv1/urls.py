@@ -5,7 +5,7 @@ urlpatterns = [
     path('', views.PingAPI.as_view(), name='ping'),
 ]
 
-# accounts
+# accounts | authentications
 urlpatterns += [
     path('login/', views.LoginAPI.as_view(), name='login'),
     path('logout/', views.LogoutAPIView.as_view(), name='logout'),

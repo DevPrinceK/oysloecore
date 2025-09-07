@@ -37,6 +37,13 @@ def send_mail(receipient: list, subject: str, message: str) -> None:
     """
     Send an email
     """
-    print("Email Sent To... ", receipient)
-    print("Subject: ", subject)
-    print("Message: ", message)
+    from django.core.mail import send_mail
+    from django.conf import settings
+
+    send_mail(
+        subject,
+        message,
+        settings.DEFAULT_FROM_EMAIL,
+        receipient,
+        fail_silently=False,
+    )
