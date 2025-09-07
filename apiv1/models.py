@@ -1,5 +1,5 @@
 from django.db import models
-
+import random, string
 from accounts.models import User
 
 
@@ -35,3 +35,59 @@ class Message(models.Model):
 
     def __str__(self):
         return f"{self.sender.name}: {self.content[:20]}"
+
+
+class Product(models.Model):
+    '''Product model for storing product details'''
+    def generate_pid(self):
+        '''Generates a unique product ID'''
+        return 'pid_' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=15))
+
+    pid = models.CharField(max_length=20, unique=True, default=generate_pid)
+    name = models.CharField(max_length=100)
+    category = models.ForeignKey('Category', on_delete=models.SET_NULL, null=True, blank=True)  
+    description = models.TextField()
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+class Category(models.Model):
+    '''Category model for storing product categories'''
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return self.name
+    
+class SubCategory(models.Model):
+    '''SubCategory model for storing product sub-categories'''
+    category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='subcategories')
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.category.name} - {self.name}"
+
+class Feature(models.Model):
+    '''Feature model for storing product features for certain sub-categories'''
+    subcategory = models.ForeignKey(SubCategory, on_delete=models.CASCADE, related_name='features')
+    name = models.CharField(max_length=100)
+    description = models.TextField()
+
+    def __str__(self):
+        return f"{self.subcategory.name} - {self.name}"
+    
+class ProductFeature(models.Model):
+    '''Intermediate model to link products with their features and values'''
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='product_features')
+    feature = models.ForeignKey(Feature, on_delete=models.CASCADE)
+    value = models.CharField(max_length=255)
+
+    class Meta:
+        unique_together = ('product', 'feature')
+
+    def __str__(self):
+        return f"{self.product.name} - {self.feature.name}: {self.value}"
+

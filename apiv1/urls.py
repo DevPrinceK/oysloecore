@@ -16,3 +16,9 @@ urlpatterns += [
     path('resetpassword/', views.ResetPasswordAPIView.as_view(), name='resetpassword'),
     path('userpreferences/', views.UserPreferenceAPIView.as_view(), name='userpreferences'),
 ]
+
+# chat related
+urlpatterns += [
+    # NOTE to get list of chatrooms, use websocket endpoint /ws/chats/
+    path('chatroomid/', views.GetChatroomIdAPI.as_view(), name='get_chatroom_id'),
+]
