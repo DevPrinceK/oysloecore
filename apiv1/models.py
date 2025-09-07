@@ -45,13 +45,29 @@ class Product(models.Model):
 
     pid = models.CharField(max_length=20, unique=True, default=generate_pid)
     name = models.CharField(max_length=100)
+    image = models.ImageField(upload_to='product_images/', null=True, blank=True)
     category = models.ForeignKey('Category', on_delete=models.SET_NULL, null=True, blank=True)  
     description = models.TextField()
     price = models.DecimalField(max_digits=10, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    @property
+    def all_images(self):
+        images = ProductImage.objects.filter(product__pid=self.pid)
+        return [img.image.url for img in images]
 
     def __str__(self):
         return self.name
+
+class ProductImage(models.Model):
+    '''Model to store multiple images for a product'''
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='images')
+    image = models.ImageField(upload_to='product_images/')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.product.name} Image"
+
 
 class Category(models.Model):
     '''Category model for storing product categories'''
