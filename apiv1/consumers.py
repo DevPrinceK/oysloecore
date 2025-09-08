@@ -204,6 +204,225 @@ class NewChatConsumer(AsyncWebsocketConsumer):
             pass
 
 
+class TempChatConsumer(AsyncWebsocketConsumer):
+    """Temporary chat consumer to chat with any user by passing their email in the query string.
+    Flow:
+    - client connects with token and other user's email (param 'email' or 'other_email')
+    - server finds existing private ChatRoom for the two users or creates one
+    - continues same chat flow as NewChatConsumer for that room
+    """
+    async def connect(self):
+        self.query = self.scope.get('query_string', b'')
+        self.user = await self.get_user_from_token(self.query)
+
+        if not self.user:
+            await self.close()
+            return
+
+        self.scope['user'] = self.user
+
+        # get/create private room for (self.user, other_user_email)
+        self.room = await self.get_or_create_private_room(self.query, self.user)
+        if not self.room:
+            await self.close()
+            return
+
+        self.room_name = self.room.name
+        self.room_group_name = f'chat_{self.room_name}'
+
+        await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+        await self.accept()
+
+        await self.send_chat_history()
+        await self.mark_all_messages_as_read()
+        await self.notify_unread_count_groups()
+
+    async def disconnect(self, close_code):
+        if hasattr(self, 'room_group_name'):
+            await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        message = data.get('message')
+        message_type = data.get('type')
+
+        if message_type == 'typing':
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'typing_notification',
+                    'is_typing': True,
+                    'username': self.user.email,
+                }
+            )
+            return
+        if message_type == 'stop_typing':
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'stop_typing_notification',
+                    'is_typing': False,
+                    'username': self.user.email,
+                }
+            )
+            return
+
+        if message:
+            # save and broadcast to room
+            await self.save_message(self.room_name, self.user, message)
+            from datetime import datetime
+            timestamp = datetime.utcnow().isoformat()
+
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'chat_message',
+                    'message': message,
+                    'username': self.user.name,
+                    'email': self.user.email,
+                    'timestamp': timestamp,
+                }
+            )
+
+            # notify viewers of chatrooms list and unread counts
+            await self.channel_layer.group_send(
+                'chatrooms_updates',
+                {'type': 'chatrooms_update'}
+            )
+            await self.notify_unread_count_groups()
+
+    @database_sync_to_async
+    def get_user_from_token(self, query_string):
+        from urllib.parse import parse_qs
+        from knox.auth import TokenAuthentication
+
+        parsed = parse_qs(query_string.decode())
+        token = parsed.get("token", [None])[0]
+
+        if not token:
+            return None
+
+        try:
+            user_auth_tuple = TokenAuthentication().authenticate_credentials(token.encode())
+            return user_auth_tuple[0]
+        except Exception as e:
+            logger.warning(f"Token auth failed: {e}")
+            return None
+
+    @database_sync_to_async
+    def get_or_create_private_room(self, query_string, current_user):
+        from urllib.parse import parse_qs
+        from .models import ChatRoom
+        from accounts.models import User as AccountUser
+        from django.db import IntegrityError
+        import random, string
+
+        parsed = parse_qs(query_string.decode())
+        other_email = parsed.get('email', parsed.get('other_email', [None]))[0]
+        if not other_email:
+            return None
+
+        try:
+            other = AccountUser.objects.filter(email=other_email).first()
+        except Exception:
+            return None
+
+        if not other:
+            return None
+
+        # don't allow chatting with self
+        if other.id == current_user.id:
+            return None
+
+        # try to find an existing private chatroom containing both users
+        room = ChatRoom.objects.filter(is_group=False, members=current_user).filter(members=other).first()
+        if room:
+            return room
+
+        # create a new private chatroom
+        # make a compact unique name
+        min_id = min(current_user.id, other.id)
+        max_id = max(current_user.id, other.id)
+        rand = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+        name = f'private_{min_id}_{max_id}_{rand}'
+        try:
+            room = ChatRoom.objects.create(room_id=name, name=name, is_group=False)
+            room.members.add(current_user, other)
+            return room
+        except IntegrityError:
+            # fallback: try again with a different suffix
+            rand = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+            name = f'private_{min_id}_{max_id}_{rand}'
+            try:
+                room = ChatRoom.objects.create(room_id=name, name=name, is_group=False)
+                room.members.add(current_user, other)
+                return room
+            except Exception:
+                return None
+
+    @database_sync_to_async
+    def save_message(self, room_name, sender, content):
+        from .models import ChatRoom, Message
+        try:
+            room = ChatRoom.objects.get(name=room_name)
+            Message.objects.create(room=room, sender=sender, content=content)
+        except ChatRoom.DoesNotExist:
+            pass
+
+    @database_sync_to_async
+    def get_chat_history(self):
+        from .models import ChatRoom, Message
+        try:
+            room = ChatRoom.objects.get(name=self.room_name)
+            messages = Message.objects.filter(room=room).order_by('timestamp')
+            return [
+                {
+                    'id': msg.id,
+                    'sender': msg.sender.name,
+                    'email': msg.sender.email,
+                    'content': msg.content,
+                    'timestamp': msg.timestamp.isoformat()
+                }
+                for msg in messages
+            ]
+        except ChatRoom.DoesNotExist:
+            return []
+
+    async def send_chat_history(self):
+        history = await self.get_chat_history()
+        await self.send(text_data=json.dumps({
+            'type': 'chat_history',
+            'messages': history
+        }))
+
+    @database_sync_to_async
+    def get_member_ids(self):
+        from .models import ChatRoom
+        try:
+            room = ChatRoom.objects.get(name=self.room_name)
+            return list(room.members.values_list('id', flat=True))
+        except ChatRoom.DoesNotExist:
+            return []
+
+    async def notify_unread_count_groups(self):
+        member_ids = await self.get_member_ids()
+        for user_id in member_ids:
+            group_name = f'unread_count_{user_id}'
+            await self.channel_layer.group_send(
+                group_name,
+                {'type': 'unread_count_update'}
+            )
+
+    @database_sync_to_async
+    def mark_all_messages_as_read(self):
+        from .models import ChatRoom
+        try:
+            room = ChatRoom.objects.get(name=self.room_name)
+            room.read_all_messages(self.user)
+        except ChatRoom.DoesNotExist:
+            pass
+
+
 class ChatRoomsConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.group_name = 'chatrooms_updates'
