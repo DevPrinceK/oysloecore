@@ -29,4 +29,5 @@ urlpatterns += [
     path('subcategories/', views.SubCategoriesAPIView.as_view(), name='subcategories'),
     path('products/', views.ProductsAPI.as_view(), name='products'),
     path('relatedproducts/', views.RelatedProductsAPI.as_view(), name='related_products'),
+    path('reviewproduct/', views.ReviewProductAPI.as_view(), name='review_product'),
 ]
