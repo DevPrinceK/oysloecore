@@ -8,6 +8,7 @@ from apiv1.models import (
     Product,
     ProductImage,
     Category,
+    Review,
     SubCategory,
     Feature,
     ProductFeature,
@@ -165,3 +166,12 @@ class ChatRoomSerializer(serializers.ModelSerializer):
         if user and hasattr(obj, "get_total_unread_messages"):
             return obj.get_total_unread_messages(user)
         return 0
+    
+class ReviewSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+    product = ProductSerializer(read_only=True)
+
+    class Meta:
+        model = Review
+        fields = ['id', 'user', 'product', 'rating', 'comment', 'created_at']
+        read_only_fields = ['id', 'created_at']
