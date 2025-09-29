@@ -36,7 +36,8 @@ class LoginAPI(APIView):
        
         login(request, user)
 
-        # NOTE COMMENTED CODE MEANS USER CAN LOGOUT FROM OTHER DEVICES
+        # REMOVE THE FOLLOW COMMENTS IF YOU DON'T WANT 
+        # MULTIPLE LOGINS FOR THE SAME USER
         # Delete existing token
         # AuthToken.objects.filter(user=user).delete()
         return Response({
