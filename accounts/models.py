@@ -31,7 +31,12 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
 
     deleted = models.BooleanField(default=False)  # Soft delete
 
-    level = models.CharField(max_length=10, choices=[(tag, tag.value) for tag in UserLevelTrack], default=UserLevelTrack.SILVER.value)
+    # Use primitive strings for choices to avoid exposing Enum instances to DRF/JSON encoders
+    level = models.CharField(
+        max_length=10,
+        choices=[(tag.value, tag.value) for tag in UserLevelTrack],
+        default=UserLevelTrack.SILVER.value,
+    )
     referral_points = models.IntegerField(default=0)
     
     is_active = models.BooleanField(default=True)
@@ -81,7 +86,8 @@ class Coupon(TimeStampedModel):
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
 
     def __str__(self):
-        return f"{self.created_by.name} created Coupon: {self.code} with {self.points} points"
+        creator = getattr(self.created_by, 'name', 'System') if self.created_by else 'System'
+        return f"{creator} created Coupon: {self.code} with {self.points} points"
 
 class Wallet(TimeStampedModel):
     '''Wallet model for storing user wallet information'''
