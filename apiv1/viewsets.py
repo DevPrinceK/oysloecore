@@ -47,7 +47,7 @@ class ProductViewSet(viewsets.ModelViewSet):
 
 
 class ProductImageViewSet(viewsets.ModelViewSet):
-    queryset = ProductImage.objects.all().order_by('-uploaded_at')
+    queryset = ProductImage.objects.all().order_by('-created_at')
     serializer_class = ProductImageSerializer
     permission_classes = [IsAuthenticated]
     filterset_fields = ['product']
@@ -84,7 +84,7 @@ class MessageViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        return Message.objects.filter(room__members=user).order_by('-timestamp')
+        return Message.objects.filter(room__members=user).order_by('-created_at')
 
 
 class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
@@ -97,7 +97,7 @@ class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=['get'])
     def messages(self, request, pk=None):
         room = self.get_object()
-        msgs = room.messages.order_by('timestamp')
+        msgs = room.messages.order_by('created_at')
         return Response(MessageSerializer(msgs, many=True).data)
 
     @action(detail=True, methods=['post'])
