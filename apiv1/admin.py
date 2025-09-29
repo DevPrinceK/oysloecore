@@ -1,6 +1,7 @@
 from django.contrib import admin
 from .models import (
-	ChatRoom, Message, Product, ProductImage, Category, SubCategory, Feature, ProductFeature, Review
+	ChatRoom, Message, Product, ProductImage, Category, SubCategory, Feature, ProductFeature, Review,
+	Coupon, CouponRedemption
 )
 
 
@@ -77,4 +78,20 @@ class ReviewAdmin(admin.ModelAdmin):
 	list_display = ('id', 'product', 'user', 'rating', 'created_at')
 	search_fields = ('product__name', 'user__email', 'user__name', 'comment')
 	list_filter = ('rating', 'created_at', 'product')
+	ordering = ('-created_at',)
+
+
+@admin.register(Coupon)
+class CouponAdmin(admin.ModelAdmin):
+	list_display = ('id', 'code', 'discount_type', 'discount_value', 'uses', 'max_uses', 'is_active', 'valid_from', 'valid_until')
+	search_fields = ('code', 'description')
+	list_filter = ('discount_type', 'is_active', 'created_at')
+	ordering = ('-created_at',)
+
+
+@admin.register(CouponRedemption)
+class CouponRedemptionAdmin(admin.ModelAdmin):
+	list_display = ('id', 'coupon', 'user', 'created_at')
+	search_fields = ('coupon__code', 'user__email', 'user__name')
+	list_filter = ('created_at',)
 	ordering = ('-created_at',)
