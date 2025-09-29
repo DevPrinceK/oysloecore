@@ -28,7 +28,7 @@ class CreateUserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["email", "phone", "name", "address", "avatar", "bio", "password"]
+        fields = ["email", "phone", "name", "address", "avatar", "password"]
         extra_kwargs = {
             "password": {"write_only": True},
             "email": {"required": True},
@@ -43,7 +43,6 @@ class CreateUserSerializer(serializers.ModelSerializer):
             name=validated_data.get("name"),
             address=validated_data.get("address"),
             avatar=validated_data.get("avatar"),
-            bio=validated_data.get("bio"),
         )
 
 
@@ -162,7 +161,7 @@ class ChatRoomSerializer(serializers.ModelSerializer):
         model = ChatRoom
         fields = ["id", "room_id", "name", "is_group", "members", "messages", "created_at", "total_unread"]
 
-    def get_total_unread(self, obj):
+    def get_total_unread(self, obj) -> int:
         request = self.context.get("request")
         user = getattr(request, "user", None)
         if user and hasattr(obj, "get_total_unread_messages"):
@@ -191,7 +190,7 @@ class CouponSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'uses', 'created_at', 'updated_at']
 
-    def get_remaining_uses(self, obj):
+    def get_remaining_uses(self, obj) -> int | None:
         return obj.remaining_uses()
 
 
@@ -202,3 +201,55 @@ class CouponRedemptionSerializer(serializers.ModelSerializer):
         model = CouponRedemption
         fields = ['id', 'coupon', 'user', 'created_at']
         read_only_fields = ['id', 'created_at']
+
+# ----- APIView documentation serializers -----
+
+class PingResponseSerializer(serializers.Serializer):
+    message = serializers.CharField()
+
+
+class LoginResponseSerializer(serializers.Serializer):
+    user = UserSerializer()
+    token = serializers.CharField()
+
+
+class RegisterUserResponseSerializer(serializers.Serializer):
+    user = UserSerializer()
+    token = serializers.CharField()
+
+
+class GenericMessageSerializer(serializers.Serializer):
+    message = serializers.CharField()
+
+
+class SimpleStatusSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    message = serializers.CharField(required=False, allow_blank=True)
+
+
+class VerifyOTPPostRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp = serializers.CharField()
+
+
+class UserUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = (
+            'email', 'phone', 'name', 'address', 'avatar',
+            'preferred_notification_email', 'preferred_notification_phone'
+        )
+        extra_kwargs = {field: {"required": False} for field in fields}
+
+
+class AdminToggleUserSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    is_active = serializers.BooleanField()
+
+
+class AdminDeleteUserSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+
+
+class ChatroomIdResponseSerializer(serializers.Serializer):
+    chatroom_id = serializers.CharField()
