@@ -1,5 +1,7 @@
 from rest_framework import status, permissions, viewsets
 from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema
+from rest_framework import serializers
 from rest_framework.response import Response
 from .models import FCMDevice
 from django.contrib.auth import get_user_model
@@ -7,6 +9,15 @@ from .serializers import FCMDeviceSerializer
 
 User = get_user_model()
 
+class SaveFCMTokenRequestSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    user_id = serializers.IntegerField()
+
+@extend_schema(
+    request=SaveFCMTokenRequestSerializer,
+    responses={201: {"status": "Token saved"}, 400: {"error": "Missing token or user_id"}},
+    operation_id='save_fcm_token'
+)
 class SaveFCMTokenView(APIView):
     def post(self, request):
         token = request.data.get("token")
