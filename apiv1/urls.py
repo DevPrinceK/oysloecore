@@ -1,5 +1,11 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from . import views
+from .viewsets import (
+    CategoryViewSet, SubCategoryViewSet, ProductViewSet, ProductImageViewSet,
+    FeatureViewSet, ProductFeatureViewSet, ReviewViewSet,
+    ChatRoomViewSet, MessageViewSet
+)
 
 urlpatterns = [
     path('', views.PingAPI.as_view(), name='ping'),
@@ -30,4 +36,20 @@ urlpatterns += [
     path('products/', views.ProductsAPI.as_view(), name='products'),
     path('relatedproducts/', views.RelatedProductsAPI.as_view(), name='related_products'),
     path('reviewproduct/', views.ReviewProductAPI.as_view(), name='review_product'),
+]
+
+# ViewSets via router
+router = DefaultRouter()
+router.register('categories', CategoryViewSet, basename='category')
+router.register('subcategories', SubCategoryViewSet, basename='subcategory')
+router.register('products', ProductViewSet, basename='product')
+router.register('product-images', ProductImageViewSet, basename='productimage')
+router.register('features', FeatureViewSet, basename='feature')
+router.register('product-features', ProductFeatureViewSet, basename='productfeature')
+router.register('reviews', ReviewViewSet, basename='review')
+router.register('chatrooms', ChatRoomViewSet, basename='chatroom')
+router.register('messages', MessageViewSet, basename='message')
+
+urlpatterns += [
+    path('', include(router.urls)),
 ]
