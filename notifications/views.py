@@ -1,8 +1,9 @@
+from rest_framework import status, permissions, viewsets
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
 from .models import FCMDevice
 from django.contrib.auth import get_user_model
+from .serializers import FCMDeviceSerializer
 
 User = get_user_model()
 
@@ -18,3 +19,22 @@ class SaveFCMTokenView(APIView):
         FCMDevice.objects.update_or_create(user=user, token=token)
 
         return Response({"status": "Token saved"}, status=201)
+
+
+class FCMDeviceViewSet(viewsets.ModelViewSet):
+    """
+    Manage FCM device tokens for the authenticated user. POST is idempotent per-token.
+    """
+    serializer_class = FCMDeviceSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return FCMDevice.objects.filter(user=self.request.user).order_by('-created_at')
+
+    def create(self, request, *args, **kwargs):
+        token = request.data.get('token')
+        if not token:
+            return Response({'detail': 'token is required'}, status=status.HTTP_400_BAD_REQUEST)
+        obj, _ = FCMDevice.objects.update_or_create(user=request.user, token=token)
+        serializer = self.get_serializer(obj)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
