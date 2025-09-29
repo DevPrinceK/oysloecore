@@ -104,8 +104,8 @@ class ResetPasswordSerializer(serializers.Serializer):
 class ProductImageSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductImage
-        fields = ["id", "product", "image", "uploaded_at"]
-        read_only_fields = ["id", "uploaded_at"]
+        fields = ["id", "product", "image", "created_at"]
+        read_only_fields = ["id", "created_at"]
 
 
 class FeatureSerializer(serializers.ModelSerializer):
@@ -148,7 +148,7 @@ class MessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Message
-        fields = ["id", "room", "sender", "content", "timestamp", "is_read"]
+        fields = ["id", "room", "sender", "content", "created_at", "is_read"]
 
 
 class ChatRoomSerializer(serializers.ModelSerializer):
