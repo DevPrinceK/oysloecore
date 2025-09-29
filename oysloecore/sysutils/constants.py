@@ -7,3 +7,10 @@ class UserType(Enum):
     VENDOR = 'VENDOR'
     RIDER = 'RIDER'
     ADMIN = 'ADMIN'
+
+
+class UserLevelTrack(Enum):
+    '''Defines the user levels allowed in the system. Default: Silver'''
+    SILVER = 'SILVER'
+    GOLD = 'GOLD'
+    DIAMOND = 'DIAMOND'
