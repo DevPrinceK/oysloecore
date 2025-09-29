@@ -11,13 +11,14 @@ from django.utils import timezone
 
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
+from oysloecore.sysutils.models import TimeStampedModel
 
 from notifications.utils import send_mail
 
 from .manager import AccountManager
 
 
-class User(AbstractBaseUser, PermissionsMixin):
+class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
     '''Custom User model for the application'''
     email = models.EmailField(max_length=50, unique=True)
     phone = models.CharField(max_length=15, unique=True)
@@ -39,8 +40,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     preferred_notification_email = models.EmailField(max_length=50, blank=True, null=True)
     preferred_notification_phone = models.CharField(max_length=15, blank=True, null=True)
 
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     objects = AccountManager()
 
@@ -51,12 +50,10 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.name
     
 
-class Wallet(models.Model):
+class Wallet(TimeStampedModel):
     '''Wallet model for storing user wallet information'''
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     def deposit(self, amount: float) -> None:
         '''Deposit money into the wallet'''
@@ -72,12 +69,10 @@ class Wallet(models.Model):
         return f"{self.user.name}'s Wallet"
 
 
-class OTP(models.Model):
+class OTP(TimeStampedModel):
     '''One Time Password model'''
     email = models.CharField(max_length=100)
     otp = models.CharField(max_length=6)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     def is_expired(self) -> bool:
         '''Returns True if the OTP is expired'''
