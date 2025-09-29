@@ -4,12 +4,25 @@ from uuid import uuid4
 from django.contrib.auth import login
 from knox.models import AuthToken
 from rest_framework import permissions, status
+from drf_spectacular.utils import extend_schema
+from apiv1.serializers import (
+    LoginSerializer, UserSerializer, RegisterUserSerializer,
+    ChangePasswordSerializer, ResetPasswordSerializer,
+    VerifyOTPPostRequestSerializer, LoginResponseSerializer,
+    RegisterUserResponseSerializer, GenericMessageSerializer, SimpleStatusSerializer,
+    UserUpdateSerializer, AdminToggleUserSerializer, AdminDeleteUserSerializer,
+)
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import OTP, User
 from apiv1.serializers import ChangePasswordSerializer, LoginSerializer, RegisterUserSerializer, ResetPasswordSerializer, UserSerializer
 
+@extend_schema(
+    request=LoginSerializer,
+    responses={200: LoginResponseSerializer, 401: GenericMessageSerializer},
+    operation_id='login'
+)
 class LoginAPI(APIView):
     '''Login api endpoint'''
     permission_classes = (permissions.AllowAny,)
@@ -46,6 +59,11 @@ class LoginAPI(APIView):
         })
 
 
+@extend_schema(
+    request=RegisterUserSerializer,
+    responses={200: RegisterUserResponseSerializer, 401: GenericMessageSerializer},
+    operation_id='register'
+)
 class RegisterUserAPI(APIView):
     '''Register User api endpoint'''
     permission_classes = (permissions.AllowAny,)
@@ -77,6 +95,11 @@ class RegisterUserAPI(APIView):
             })
         
 
+@extend_schema(
+    methods=['POST'],
+    responses={200: SimpleStatusSerializer},
+    operation_id='logout'
+)
 class LogoutAPIView(APIView):
     '''Logout API endpoint'''
     permission_classes = (permissions.IsAuthenticated,)
@@ -90,6 +113,12 @@ class LogoutAPIView(APIView):
         }, status=status.HTTP_200_OK)
     
 
+@extend_schema(
+    methods=['GET', 'POST'],
+    request=VerifyOTPPostRequestSerializer,
+    responses={200: GenericMessageSerializer, 400: GenericMessageSerializer, 404: GenericMessageSerializer},
+    operation_id='verify_otp'
+)
 class VerifyOTPAPI(APIView):
     '''Verify OTP api endpoint'''
     permission_classes = (permissions.AllowAny,)
@@ -133,6 +162,11 @@ class VerifyOTPAPI(APIView):
         return Response({'message': 'OTP verified successfully'}, status=status.HTTP_200_OK)
     
 
+@extend_schema(
+    request=ResetPasswordSerializer,
+    responses={200: SimpleStatusSerializer, 400: GenericMessageSerializer},
+    operation_id='reset_password'
+)
 class ResetPasswordAPIView(APIView):
     '''API endpoint to reset user password'''
 
@@ -170,6 +204,12 @@ class ResetPasswordAPIView(APIView):
         print(serializer.errors)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+@extend_schema(
+    methods=['GET', 'PUT', 'POST', 'DELETE'],
+    request=UserUpdateSerializer,
+    responses={200: UserSerializer, 400: GenericMessageSerializer, 401: GenericMessageSerializer},
+    operation_id='user_profile'
+)
 class UserProfileAPIView(APIView):
     '''Get user profile'''
     permission_classes = (permissions.IsAuthenticated,)
@@ -229,6 +269,11 @@ class UserProfileAPIView(APIView):
         return Response({'message': 'You are not authorized to delete this account'}, status=status.HTTP_401_UNAUTHORIZED)
     
 
+@extend_schema(
+    request=ChangePasswordSerializer,
+    responses={200: SimpleStatusSerializer, 400: GenericMessageSerializer},
+    operation_id='change_password'
+)
 class ChangePasswordAPIView(APIView):
     '''API endpoint to change user password'''
 
@@ -248,6 +293,12 @@ class ChangePasswordAPIView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+@extend_schema(
+    methods=['GET', 'PUT'],
+    request=UserUpdateSerializer,
+    responses={200: UserSerializer, 400: GenericMessageSerializer},
+    operation_id='user_preferences'
+)
 class UserPreferenceAPIView(APIView):
     '''API endpoint to get and update a user's preferences'''
     permission_classes = (permissions.IsAuthenticated,)
