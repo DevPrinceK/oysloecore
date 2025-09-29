@@ -85,6 +85,9 @@ class MessageViewSet(viewsets.ReadOnlyModelViewSet):
     filterset_fields = ['room']
 
     def get_queryset(self):
+        # During schema generation, spectacular sets swagger_fake_view to True
+        if getattr(self, 'swagger_fake_view', False):  # pragma: no cover
+            return Message.objects.none()
         user = self.request.user
         return Message.objects.filter(room__members=user).order_by('-created_at')
 
@@ -94,6 +97,8 @@ class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):  # pragma: no cover
+            return ChatRoom.objects.none()
         return ChatRoom.objects.filter(members=self.request.user).order_by('-created_at')
 
     @action(detail=True, methods=['get'])
