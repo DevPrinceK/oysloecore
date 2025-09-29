@@ -29,14 +29,15 @@ urlpatterns += [
     path('chatroomid/', views.GetChatroomIdAPI.as_view(), name='get_chatroom_id'),
 ]
 
-# products related
-urlpatterns += [
-    path('categories/', views.CategoriesAPIView.as_view(), name='categories'),
-    path('subcategories/', views.SubCategoriesAPIView.as_view(), name='subcategories'),
-    path('products/', views.ProductsAPI.as_view(), name='products'),
-    path('relatedproducts/', views.RelatedProductsAPI.as_view(), name='related_products'),
-    path('reviewproduct/', views.ReviewProductAPI.as_view(), name='review_product'),
-]
+# OLD ENDPOINTS
+# # products related
+# urlpatterns += [
+#     path('categories/', views.CategoriesAPIView.as_view(), name='categories'),
+#     path('subcategories/', views.SubCategoriesAPIView.as_view(), name='subcategories'),
+#     path('products/', views.ProductsAPI.as_view(), name='products'),
+#     path('relatedproducts/', views.RelatedProductsAPI.as_view(), name='related_products'),
+#     path('reviewproduct/', views.ReviewProductAPI.as_view(), name='review_product'),
+# ]
 
 # ViewSets via router
 router = DefaultRouter()
