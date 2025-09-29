@@ -32,6 +32,8 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     'knox',
+    'drf_spectacular',
+    'django_filters',
 
     # internal
     'accounts.apps.AccountsConfig',
@@ -154,7 +156,13 @@ MEDIA_ROOT = BASE_DIR / "assets"
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'knox.auth.TokenAuthentication',
-    ]
+    ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
 }
 # knox - make token non-expiry
 REST_KNOX = {
@@ -183,3 +191,11 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_MAIL')
 # SMS SETTINGS
 SENDER_ID = os.getenv('SMS_SENDER_ID') # 11 characters max
 ARKESEL_API_KEY = os.getenv('ARKESEL_SMS_API_KEY')
+
+# DRF Spectacular settings
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Oysloe Core API',
+    'DESCRIPTION': 'Oysloe marketplace API',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+}
