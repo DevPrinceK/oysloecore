@@ -2,6 +2,9 @@ from django.db import models
 import random, string
 from accounts.models import User
 from oysloecore.sysutils.models import TimeStampedModel
+from django.utils import timezone
+from django.core.validators import MinValueValidator
+from django.db import transaction
 
 
 class ChatRoom(TimeStampedModel):
@@ -116,3 +119,59 @@ class Review(TimeStampedModel):
 
     def __str__(self):
         return f"{self.user.name} - {self.product.name} Review"
+
+
+class Coupon(TimeStampedModel):
+    """Coupon model supporting percent or fixed discounts with limits and validity windows."""
+    DISCOUNT_PERCENT = 'percent'
+    DISCOUNT_FIXED = 'fixed'
+    DISCOUNT_TYPE_CHOICES = [
+        (DISCOUNT_PERCENT, 'Percent'),
+        (DISCOUNT_FIXED, 'Fixed'),
+    ]
+
+    code = models.CharField(max_length=50, unique=True)
+    description = models.TextField(blank=True, null=True)
+    discount_type = models.CharField(max_length=10, choices=DISCOUNT_TYPE_CHOICES)
+    discount_value = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
+    max_uses = models.PositiveIntegerField(blank=True, null=True, help_text='Total times this coupon can be used across all users')
+    uses = models.PositiveIntegerField(default=0)
+    per_user_limit = models.PositiveIntegerField(blank=True, null=True, help_text='Max uses allowed per user')
+    valid_from = models.DateTimeField(blank=True, null=True)
+    valid_until = models.DateTimeField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['code']),
+            models.Index(fields=['is_active']),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.code:
+            self.code = self.code.upper()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.code
+
+    def is_within_validity(self) -> bool:
+        now = timezone.now()
+        if self.valid_from and now < self.valid_from:
+            return False
+        if self.valid_until and now > self.valid_until:
+            return False
+        return True
+
+    def remaining_uses(self) -> int | None:
+        if self.max_uses is None:
+            return None
+        return max(self.max_uses - self.uses, 0)
+
+
+class CouponRedemption(TimeStampedModel):
+    coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE, related_name='redemptions')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='coupon_redemptions')
+
+    def __str__(self):
+        return f"{self.user.email} -> {self.coupon.code}"
