@@ -50,6 +50,8 @@ router.register('product-features', ProductFeatureViewSet, basename='productfeat
 router.register('reviews', ReviewViewSet, basename='review')
 router.register('chatrooms', ChatRoomViewSet, basename='chatroom')
 router.register('messages', MessageViewSet, basename='message')
+from .viewsets import CouponViewSet
+router.register('coupons', CouponViewSet, basename='coupon')
 
 urlpatterns += [
     path('', include(router.urls)),
