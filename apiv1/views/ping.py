@@ -3,8 +3,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import User
+from drf_spectacular.utils import extend_schema
+from apiv1.serializers import PingResponseSerializer
 
 
+@extend_schema(
+    methods=['GET'],
+    responses={200: PingResponseSerializer},
+    operation_id='ping'
+)
 class PingAPI(APIView):
     '''This view is used to check if the server is up and running'''
     def get(self, request):
