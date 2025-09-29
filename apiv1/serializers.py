@@ -12,6 +12,8 @@ from apiv1.models import (
     SubCategory,
     Feature,
     ProductFeature,
+    Coupon,
+    CouponRedemption,
 )
 
 
@@ -174,4 +176,29 @@ class ReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = Review
         fields = ['id', 'user', 'product', 'rating', 'comment', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+class CouponSerializer(serializers.ModelSerializer):
+    remaining_uses = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Coupon
+        fields = [
+            'id', 'code', 'description', 'discount_type', 'discount_value',
+            'max_uses', 'uses', 'per_user_limit', 'valid_from', 'valid_until',
+            'is_active', 'created_at', 'updated_at', 'remaining_uses'
+        ]
+        read_only_fields = ['id', 'uses', 'created_at', 'updated_at']
+
+    def get_remaining_uses(self, obj):
+        return obj.remaining_uses()
+
+
+class CouponRedemptionSerializer(serializers.ModelSerializer):
+    coupon = CouponSerializer(read_only=True)
+
+    class Meta:
+        model = CouponRedemption
+        fields = ['id', 'coupon', 'user', 'created_at']
         read_only_fields = ['id', 'created_at']
