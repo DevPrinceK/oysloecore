@@ -7,10 +7,13 @@ and their otp information.
 '''
 
 from datetime import timedelta
+import random
+import string
 from django.utils import timezone
 
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
+from oysloecore.sysutils.constants import UserLevelTrack
 from oysloecore.sysutils.models import TimeStampedModel
 
 from notifications.utils import send_mail
@@ -27,6 +30,9 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
 
     deleted = models.BooleanField(default=False)  # Soft delete
+
+    level = models.CharField(max_length=10, choices=[(tag, tag.value) for tag in UserLevelTrack], default=UserLevelTrack.SILVER.value)
+    referral_points = models.IntegerField(default=0)
     
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
@@ -40,15 +46,42 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
     preferred_notification_email = models.EmailField(max_length=50, blank=True, null=True)
     preferred_notification_phone = models.CharField(max_length=15, blank=True, null=True)
 
-
     objects = AccountManager()
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['phone', 'name']
 
+    def redeem_points(self) -> bool:
+        '''Redeem referral points'''
+        # check if user can redeem. User can only redeem in multiples of 2,500 points. 
+        # eg. if user has 3000 points, they can only redeem 2500 points whiles 500 points remains in their account
+        pass
+
     def __str__(self):
         return self.name
+
+
+class Referral(TimeStampedModel):
+    '''Model to track user referrals'''
+    def generate_ref_code():
+        '''Generates a unique referral code'''
+        return 'OYS-' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=7))
+    inviter = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invitations')
+    invitee = models.ForeignKey(User, on_delete=models.CASCADE, related_name='referrals')
+    code = models.CharField(max_length=20, unique=True, default=generate_ref_code)
+
+    def __str__(self):
+        return f"{self.inviter.name} referred {self.invitee.name} with code {self.code}"
     
+class Coupon(TimeStampedModel):
+    '''Model to store coupon details'''
+    code = models.CharField(max_length=20, unique=True)
+    points = models.IntegerField(choices=[(5, '5'), (50, '50')], default=5)
+    is_expired = models.BooleanField(default=False)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.created_by.name} created Coupon: {self.code} with {self.points} points"
 
 class Wallet(TimeStampedModel):
     '''Wallet model for storing user wallet information'''
