@@ -173,14 +173,14 @@ class NewChatConsumer(AsyncWebsocketConsumer):
         from .models import ChatRoom, Message
         try:
             room = ChatRoom.objects.get(name=self.room_name)
-            messages = Message.objects.filter(room=room).order_by('timestamp')
+            messages = Message.objects.filter(room=room).order_by('created_at')
             return [
                 {
                     'id': msg.id,
                     'sender': msg.sender.name,
                     'email': msg.sender.email,
                     'content': msg.content,
-                    'timestamp': msg.timestamp.isoformat()
+                    'timestamp': msg.created_at.isoformat()
                 }
                 for msg in messages
             ]
@@ -204,7 +204,7 @@ class NewChatConsumer(AsyncWebsocketConsumer):
             pass
 
 
-class TempChatConsumer(AsyncWebsocketConsumer):
+class TemChatConsumer(AsyncWebsocketConsumer):
     """Temporary chat consumer to chat with any user by passing their email in the query string.
     Flow:
     - client connects with token and other user's email (param 'email' or 'other_email')
@@ -374,14 +374,14 @@ class TempChatConsumer(AsyncWebsocketConsumer):
         from .models import ChatRoom, Message
         try:
             room = ChatRoom.objects.get(name=self.room_name)
-            messages = Message.objects.filter(room=room).order_by('timestamp')
+            messages = Message.objects.filter(room=room).order_by('created_at')
             return [
                 {
                     'id': msg.id,
                     'sender': msg.sender.name,
                     'email': msg.sender.email,
                     'content': msg.content,
-                    'timestamp': msg.timestamp.isoformat()
+                    'timestamp': msg.created_at.isoformat()
                 }
                 for msg in messages
             ]
@@ -494,14 +494,14 @@ class ChatRoomsConsumer(AsyncWebsocketConsumer):
             # Fetch last message
             last_message = (
                 Message.objects.filter(room=room)
-                .order_by('-timestamp')
+                .order_by('-created_at')
                 .first()
             )
 
             if last_message:
                 data['last_message'] = {
                     'text': last_message.content,
-                    'created_at': last_message.timestamp.isoformat(),
+                    'created_at': last_message.created_at.isoformat(),
                     'sender': last_message.sender.name,
                 }
             else:
