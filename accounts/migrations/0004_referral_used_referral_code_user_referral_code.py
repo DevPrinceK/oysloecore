@@ -19,6 +19,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='user',
             name='referral_code',
-            field=models.CharField(default=accounts.models.User.generate_referral_code, max_length=20, unique=True),
+            field=models.CharField(default=accounts.models.generate_unique_referral_code, max_length=20, unique=True),
         ),
     ]
