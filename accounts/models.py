@@ -11,6 +11,7 @@ from decimal import Decimal
 import random
 import string
 from django.utils import timezone
+from django.db import IntegrityError, transaction
 
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
@@ -20,23 +21,13 @@ from oysloecore.sysutils.models import TimeStampedModel
 from notifications.utils import send_mail
 
 
-# Robust referral code generator with uniqueness checks
+# Referral code generator that does NOT touch the DB during import/app checks
 def generate_unique_referral_code() -> str:
-    """Generate a unique referral code with retries to avoid collisions.
-    Format: RF-XXXXXXXX (A-Z0-9). Falls back to longer code if needed.
+    """Generate a referral code (RF-XXXXXXXX) without querying the DB.
+    Uniqueness is enforced with retries in User.save().
     """
     alphabet = string.ascii_uppercase + string.digits
-    # Try a bounded number of attempts with 8 chars
-    for _ in range(25):
-        code = 'RF-' + ''.join(random.choices(alphabet, k=8))
-        # User class is defined below; this function runs at call-time
-        if not User.objects.filter(referral_code=code).exists():  # type: ignore[name-defined]
-            return code
-    # Fallback to a longer code if extremely unlucky
-    while True:
-        code = 'RF-' + ''.join(random.choices(alphabet, k=10))
-        if not User.objects.filter(referral_code=code).exists():  # type: ignore[name-defined]
-            return code
+    return 'RF-' + ''.join(random.choices(alphabet, k=8))
 
 from .manager import AccountManager
 
@@ -51,16 +42,15 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
 
     deleted = models.BooleanField(default=False)  # Soft delete
 
-    # Use primitive strings for choices to avoid exposing Enum instances to DRF/JSON encoders
+    # Level and referral tracking
     level = models.CharField(
         max_length=10,
         choices=[(tag.value, tag.value) for tag in UserLevelTrack],
         default=UserLevelTrack.SILVER.value,
     )
     referral_points = models.IntegerField(default=0)
-    # Unique referral code that others can use to gain bonuses during signup
     referral_code = models.CharField(max_length=20, unique=True, default=generate_unique_referral_code)
-    
+
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     is_superuser = models.BooleanField(default=False)
@@ -125,6 +115,22 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
 
     def __str__(self):
         return self.name
+
+    # Ensure referral_code uniqueness with DB-level safeguard, without DB reads at import time
+    def save(self, *args, **kwargs):
+        if not self.referral_code:
+            self.referral_code = generate_unique_referral_code()
+        attempts = 0
+        while True:
+            try:
+                with transaction.atomic():
+                    return super().save(*args, **kwargs)
+            except IntegrityError as e:
+                if 'referral_code' in str(e).lower() and attempts < 5:
+                    self.referral_code = generate_unique_referral_code()
+                    attempts += 1
+                    continue
+                raise
 
 
 class Referral(TimeStampedModel):
