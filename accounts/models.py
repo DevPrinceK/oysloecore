@@ -7,6 +7,7 @@ and their otp information.
 '''
 
 from datetime import timedelta
+from decimal import Decimal
 import random
 import string
 from django.utils import timezone
@@ -17,6 +18,25 @@ from oysloecore.sysutils.constants import UserLevelTrack
 from oysloecore.sysutils.models import TimeStampedModel
 
 from notifications.utils import send_mail
+
+
+# Robust referral code generator with uniqueness checks
+def generate_unique_referral_code() -> str:
+    """Generate a unique referral code with retries to avoid collisions.
+    Format: RF-XXXXXXXX (A-Z0-9). Falls back to longer code if needed.
+    """
+    alphabet = string.ascii_uppercase + string.digits
+    # Try a bounded number of attempts with 8 chars
+    for _ in range(25):
+        code = 'RF-' + ''.join(random.choices(alphabet, k=8))
+        # User class is defined below; this function runs at call-time
+        if not User.objects.filter(referral_code=code).exists():  # type: ignore[name-defined]
+            return code
+    # Fallback to a longer code if extremely unlucky
+    while True:
+        code = 'RF-' + ''.join(random.choices(alphabet, k=10))
+        if not User.objects.filter(referral_code=code).exists():  # type: ignore[name-defined]
+            return code
 
 from .manager import AccountManager
 
@@ -38,6 +58,8 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
         default=UserLevelTrack.SILVER.value,
     )
     referral_points = models.IntegerField(default=0)
+    # Unique referral code that others can use to gain bonuses during signup
+    referral_code = models.CharField(max_length=20, unique=True, default=generate_unique_referral_code)
     
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
@@ -56,11 +78,50 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['phone', 'name']
 
-    def redeem_points(self) -> bool:
-        '''Redeem referral points'''
-        # check if user can redeem. User can only redeem in multiples of 2,500 points. 
-        # eg. if user has 3000 points, they can only redeem 2500 points whiles 500 points remains in their account
-        pass
+    def add_points(self, points: int) -> None:
+        '''Add referral points and auto-update level.'''
+        self.referral_points = (self.referral_points or 0) + int(points)
+        self.update_level(commit=False)
+        self.save(update_fields=["referral_points", "level", "updated_at"])
+
+    def update_level(self, commit: bool = True) -> None:
+        '''Update user level based on referral_points thresholds.'''
+        pts = self.referral_points or 0
+        # thresholds
+        if pts >= 1_000_000:
+            new_level = UserLevelTrack.DIAMOND.value
+        elif pts >= 100_000:
+            new_level = UserLevelTrack.GOLD.value
+        else:
+            new_level = UserLevelTrack.SILVER.value
+        if new_level != self.level:
+            self.level = new_level
+            if commit:
+                self.save(update_fields=["level", "updated_at"])
+
+    def get_redeemable_points(self) -> int:
+        '''Return the maximum redeemable points in blocks of 2,500.'''
+        pts = self.referral_points or 0
+        return (pts // 2500) * 2500
+
+    def redeem_points(self) -> tuple[int, Decimal] | None:
+        '''Redeem points in multiples of 2,500 -> GHs 500 per 2,500 points.
+        Returns (redeemed_points, cash_amount) or None if nothing to redeem.
+        '''
+        redeemable = self.get_redeemable_points()
+        if redeemable <= 0:
+            return None
+        # compute cash: 2500 pts => 500 GHS
+        blocks = redeemable // 2500
+        cash = Decimal('500.00') * blocks
+        # deduct points
+        self.referral_points = (self.referral_points or 0) - redeemable
+        self.update_level(commit=False)
+        self.save(update_fields=["referral_points", "level", "updated_at"])
+        # credit wallet
+        wallet, _ = Wallet.objects.get_or_create(user=self)
+        wallet.deposit(cash)
+        return redeemable, cash
 
     def __str__(self):
         return self.name
@@ -74,6 +135,7 @@ class Referral(TimeStampedModel):
     inviter = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invitations')
     invitee = models.ForeignKey(User, on_delete=models.CASCADE, related_name='referrals')
     code = models.CharField(max_length=20, unique=True, default=generate_ref_code)
+    used_referral_code = models.CharField(max_length=20, blank=True, null=True)
 
     def __str__(self):
         return f"{self.inviter.name} referred {self.invitee.name} with code {self.code}"
@@ -94,14 +156,14 @@ class Wallet(TimeStampedModel):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
 
-    def deposit(self, amount: float) -> None:
+    def deposit(self, amount) -> None:
         '''Deposit money into the wallet'''
-        self.balance += amount
+        self.balance = (self.balance or Decimal('0.00')) + Decimal(str(amount))
         self.save()
 
-    def withdraw(self, amount: float) -> None:
+    def withdraw(self, amount) -> None:
         '''Withdraw money from the wallet'''
-        self.balance -= amount
+        self.balance = (self.balance or Decimal('0.00')) - Decimal(str(amount))
         self.save()
 
     def __str__(self):
