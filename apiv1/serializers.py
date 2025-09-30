@@ -58,9 +58,10 @@ class LoginSerializer(serializers.Serializer):
 
 
 class RegisterUserSerializer(serializers.ModelSerializer):
+    referral_code = serializers.CharField(required=False, allow_blank=True)
     class Meta:
         model = User
-        fields = ("email", "phone", "password", "name", "address")
+        fields = ("email", "phone", "password", "name", "address", "referral_code")
         extra_kwargs = {"password": {"write_only": True}, "email": {"required": True}, "phone": {"required": True}}
 
     def validate(self, attrs):
@@ -71,13 +72,24 @@ class RegisterUserSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        return User.objects.create_user(
+        from oysloecore.sysutils.services import apply_referral_bonus
+        referral_code = validated_data.pop("referral_code", None)
+        user = User.objects.create_user(
             phone=validated_data.get("phone"),
             email=validated_data.get("email"),
             password=validated_data.get("password"),
             name=validated_data.get("name"),
             address=validated_data.get("address"),
         )
+        # apply referral immediately if provided and valid
+        if referral_code:
+            inviter = User.objects.filter(referral_code=referral_code).first()
+            if inviter and inviter.id != user.id:
+                apply_referral_bonus(inviter=inviter, invitee=user)
+                # Record referral
+                from accounts.models import Referral
+                Referral.objects.create(inviter=inviter, invitee=user, used_referral_code=referral_code)
+        return user
 
 
 class ChangePasswordSerializer(serializers.Serializer):
@@ -253,3 +265,10 @@ class AdminDeleteUserSerializer(serializers.Serializer):
 
 class ChatroomIdResponseSerializer(serializers.Serializer):
     chatroom_id = serializers.CharField()
+
+
+class RedeemReferralResponseSerializer(serializers.Serializer):
+    redeemed_points = serializers.IntegerField()
+    cash_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    remaining_points = serializers.IntegerField()
+    wallet_balance = serializers.DecimalField(max_digits=10, decimal_places=2)
