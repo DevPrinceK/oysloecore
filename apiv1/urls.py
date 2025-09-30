@@ -21,6 +21,7 @@ urlpatterns += [
     path('changepassword/', views.ChangePasswordAPIView.as_view(), name='changepassword'),
     path('resetpassword/', views.ResetPasswordAPIView.as_view(), name='resetpassword'),
     path('userpreferences/', views.UserPreferenceAPIView.as_view(), name='userpreferences'),
+    path('redeem-points/', views.RedeemReferralAPIView.as_view(), name='redeem_points'),
 ]
 
 # chat related
