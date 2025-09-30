@@ -46,7 +46,7 @@ class Command(BaseCommand):
             [venv_python, "manage.py", "migrate"],
             [venv_python, "manage.py", "collectstatic", "--noinput"],
             ["sudo", "systemctl", "restart", "nginx"],
-            ["sudo", "systemctl", "restart", "uvicorn"]
+            ["sudo", "systemctl", "restart", "oysloe"]
         ]
 
         for command in commands:
