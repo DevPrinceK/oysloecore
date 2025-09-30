@@ -13,11 +13,9 @@ class SaveFCMTokenRequestSerializer(serializers.Serializer):
     token = serializers.CharField()
     user_id = serializers.IntegerField()
 
-@extend_schema(
-    request=SaveFCMTokenRequestSerializer,
-    responses={201: {"status": "Token saved"}, 400: {"error": "Missing token or user_id"}},
-    operation_id='save_fcm_token'
-)
+class SaveFCMTokenResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+
 class SaveFCMTokenView(APIView):
     def post(self, request):
         token = request.data.get("token")
@@ -31,6 +29,10 @@ class SaveFCMTokenView(APIView):
 
         return Response({"status": "Token saved"}, status=201)
 
+    @extend_schema(request=SaveFCMTokenRequestSerializer, responses={201: SaveFCMTokenResponseSerializer, 400: SaveFCMTokenResponseSerializer})
+    def post(self, request):
+        return super().post(request)
+
 
 class FCMDeviceViewSet(viewsets.ModelViewSet):
     """
@@ -40,6 +42,8 @@ class FCMDeviceViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return FCMDevice.objects.none()
         return FCMDevice.objects.filter(user=self.request.user).order_by('-created_at')
 
     def create(self, request, *args, **kwargs):
