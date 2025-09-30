@@ -8,18 +8,15 @@ from accounts.models import User
 from apiv1.models import ChatRoom
 
 
-@extend_schema(
-    methods=['GET'],
-    parameters=[
-        OpenApiParameter(name='email', type=str, location=OpenApiParameter.QUERY, required=True),
-    ],
-    responses={200: ChatroomIdResponseSerializer, 404: ChatroomIdResponseSerializer},
-    operation_id='get_chatroom_id'
-)
 class GetChatroomIdAPI(APIView):
     '''API to get or create a chatroom between two users'''
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        parameters=[OpenApiParameter(name='email', type=str, location=OpenApiParameter.QUERY, required=True)],
+        responses={200: ChatroomIdResponseSerializer, 404: ChatroomIdResponseSerializer},
+        operation_id='get_chatroom_id'
+    )
     def get(self, request, user_id):
         '''
         Get the chatroom ID between the current user and 
