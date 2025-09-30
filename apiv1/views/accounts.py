@@ -11,6 +11,7 @@ from apiv1.serializers import (
     VerifyOTPPostRequestSerializer, LoginResponseSerializer,
     RegisterUserResponseSerializer, GenericMessageSerializer, SimpleStatusSerializer,
     UserUpdateSerializer, AdminToggleUserSerializer, AdminDeleteUserSerializer,
+    RedeemReferralResponseSerializer,
 )
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -18,16 +19,12 @@ from rest_framework.views import APIView
 from accounts.models import OTP, User
 from apiv1.serializers import ChangePasswordSerializer, LoginSerializer, RegisterUserSerializer, ResetPasswordSerializer, UserSerializer
 
-@extend_schema(
-    request=LoginSerializer,
-    responses={200: LoginResponseSerializer, 401: GenericMessageSerializer},
-    operation_id='login'
-)
 class LoginAPI(APIView):
     '''Login api endpoint'''
     permission_classes = (permissions.AllowAny,)
     serializer_class = LoginSerializer
 
+    @extend_schema(request=LoginSerializer, responses={200: LoginResponseSerializer, 401: GenericMessageSerializer}, operation_id='login')
     def post(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data)
         try:
@@ -59,16 +56,12 @@ class LoginAPI(APIView):
         })
 
 
-@extend_schema(
-    request=RegisterUserSerializer,
-    responses={200: RegisterUserResponseSerializer, 401: GenericMessageSerializer},
-    operation_id='register'
-)
 class RegisterUserAPI(APIView):
     '''Register User api endpoint'''
     permission_classes = (permissions.AllowAny,)
     serializer_class = RegisterUserSerializer
 
+    @extend_schema(request=RegisterUserSerializer, responses={200: RegisterUserResponseSerializer, 401: GenericMessageSerializer}, operation_id='register')
     def post(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data)
         try:
@@ -95,15 +88,12 @@ class RegisterUserAPI(APIView):
             })
         
 
-@extend_schema(
-    methods=['POST'],
-    responses={200: SimpleStatusSerializer},
-    operation_id='logout'
-)
 class LogoutAPIView(APIView):
     '''Logout API endpoint'''
     permission_classes = (permissions.IsAuthenticated,)
+    serializer_class = SimpleStatusSerializer
 
+    @extend_schema(responses={200: SimpleStatusSerializer}, operation_id='logout')
     def post(self, request, *args, **kwargs):
         '''Logout user'''
         request.user.auth_token.delete()
@@ -113,16 +103,11 @@ class LogoutAPIView(APIView):
         }, status=status.HTTP_200_OK)
     
 
-@extend_schema(
-    methods=['GET', 'POST'],
-    request=VerifyOTPPostRequestSerializer,
-    responses={200: GenericMessageSerializer, 400: GenericMessageSerializer, 404: GenericMessageSerializer},
-    operation_id='verify_otp'
-)
 class VerifyOTPAPI(APIView):
     '''Verify OTP api endpoint'''
     permission_classes = (permissions.AllowAny,)
 
+    @extend_schema(responses={200: GenericMessageSerializer, 400: GenericMessageSerializer}, operation_id='verify_otp_get')
     def get(self, request, *args, **kwargs):
         '''Use this endpoint to send OTP to the user'''
         email = request.query_params.get('email')
@@ -142,6 +127,7 @@ class VerifyOTPAPI(APIView):
             return Response({'error': 'Failed to send OTP'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response({'message': 'OTP sent successfully'}, status=status.HTTP_200_OK)
 
+    @extend_schema(request=VerifyOTPPostRequestSerializer, responses={200: GenericMessageSerializer, 400: GenericMessageSerializer, 404: GenericMessageSerializer}, operation_id='verify_otp_post')
     def post(self, request, *args, **kwargs):
         email = request.data.get('email')
         otp = request.data.get('otp')
@@ -162,17 +148,13 @@ class VerifyOTPAPI(APIView):
         return Response({'message': 'OTP verified successfully'}, status=status.HTTP_200_OK)
     
 
-@extend_schema(
-    request=ResetPasswordSerializer,
-    responses={200: SimpleStatusSerializer, 400: GenericMessageSerializer},
-    operation_id='reset_password'
-)
 class ResetPasswordAPIView(APIView):
     '''API endpoint to reset user password'''
 
     permission_classes = (permissions.AllowAny,)
     serializer_class = ResetPasswordSerializer
 
+    @extend_schema(request=ResetPasswordSerializer, responses={200: SimpleStatusSerializer, 400: GenericMessageSerializer}, operation_id='reset_password')
     def post(self, request, *args, **kwargs):
         '''Reset user password'''
         serializer = self.serializer_class(data=request.data)
@@ -204,22 +186,18 @@ class ResetPasswordAPIView(APIView):
         print(serializer.errors)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-@extend_schema(
-    methods=['GET', 'PUT', 'POST', 'DELETE'],
-    request=UserUpdateSerializer,
-    responses={200: UserSerializer, 400: GenericMessageSerializer, 401: GenericMessageSerializer},
-    operation_id='user_profile'
-)
 class UserProfileAPIView(APIView):
     '''Get user profile'''
     permission_classes = (permissions.IsAuthenticated,)
     serializer_class = UserSerializer
 
+    @extend_schema(responses={200: UserSerializer}, operation_id='user_profile_get')
     def get(self, request, *args, **kwargs):
         '''Get user profile for the logged in user'''
         user = request.user
         return Response(self.serializer_class(user).data)
     
+    @extend_schema(request=UserUpdateSerializer, responses={200: UserSerializer, 400: GenericMessageSerializer}, operation_id='user_profile_put')
     def put(self, request, *args, **kwargs):
         '''Update user profile for the logged in user'''
         user = request.user
@@ -229,6 +207,7 @@ class UserProfileAPIView(APIView):
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+    @extend_schema(request=AdminToggleUserSerializer, responses={200: UserSerializer, 400: GenericMessageSerializer, 401: GenericMessageSerializer}, operation_id='user_profile_post')
     def post(self, request, *args, **kwargs):
         '''Use this to disable/enable a user account. To be used by admins only'''
         user = request.user
@@ -251,6 +230,7 @@ class UserProfileAPIView(APIView):
             return Response(UserSerializer(culprit).data)
         return Response({'message': 'You are not authorized to disable this account'}, status=status.HTTP_401_UNAUTHORIZED)
     
+    @extend_schema(request=AdminDeleteUserSerializer, responses={200: GenericMessageSerializer, 400: GenericMessageSerializer, 401: GenericMessageSerializer}, operation_id='user_profile_delete')
     def delete(self, request, *args, **kwargs):
         '''Delete user account. To be used by admins only'''
         user = request.user
@@ -269,17 +249,13 @@ class UserProfileAPIView(APIView):
         return Response({'message': 'You are not authorized to delete this account'}, status=status.HTTP_401_UNAUTHORIZED)
     
 
-@extend_schema(
-    request=ChangePasswordSerializer,
-    responses={200: SimpleStatusSerializer, 400: GenericMessageSerializer},
-    operation_id='change_password'
-)
 class ChangePasswordAPIView(APIView):
     '''API endpoint to change user password'''
 
     permission_classes = (permissions.IsAuthenticated,)
     serializer_class = ChangePasswordSerializer
 
+    @extend_schema(request=ChangePasswordSerializer, responses={200: SimpleStatusSerializer, 400: GenericMessageSerializer}, operation_id='change_password')
     def post(self, request, *args, **kwargs):
         '''Change user password'''
         user = request.user
@@ -293,22 +269,18 @@ class ChangePasswordAPIView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-@extend_schema(
-    methods=['GET', 'PUT'],
-    request=UserUpdateSerializer,
-    responses={200: UserSerializer, 400: GenericMessageSerializer},
-    operation_id='user_preferences'
-)
 class UserPreferenceAPIView(APIView):
     '''API endpoint to get and update a user's preferences'''
     permission_classes = (permissions.IsAuthenticated,)
     serializer_class = UserSerializer
 
+    @extend_schema(responses={200: UserSerializer}, operation_id='user_preferences_get')
     def get(self, request, *args, **kwargs):
         '''Get user preferences for the logged in user'''
         user = request.user
         return Response(self.serializer_class(user).data)
 
+    @extend_schema(request=UserUpdateSerializer, responses={200: UserSerializer, 400: GenericMessageSerializer}, operation_id='user_preferences_put')
     def put(self, request, *args, **kwargs):
         '''Update user preferences for the logged in user'''
         user = request.user
@@ -317,3 +289,26 @@ class UserPreferenceAPIView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class RedeemReferralAPIView(APIView):
+    """Redeem referral points in blocks of 2,500 => Ghc 500 per block."""
+    permission_classes = (permissions.IsAuthenticated,)
+    serializer_class = RedeemReferralResponseSerializer
+
+    @extend_schema(responses={200: RedeemReferralResponseSerializer, 400: GenericMessageSerializer}, operation_id='redeem_referral_points')
+    def post(self, request, *args, **kwargs):
+        user = request.user
+        result = user.redeem_points()
+        if not result:
+            return Response({"message": "Not enough points to redeem."}, status=status.HTTP_400_BAD_REQUEST)
+        redeemed_points, cash_amount = result
+        wallet = getattr(user, 'wallet', None)
+        balance = wallet.balance if wallet else 0
+        data = {
+            "redeemed_points": redeemed_points,
+            "cash_amount": cash_amount,
+            "remaining_points": user.referral_points,
+            "wallet_balance": balance,
+        }
+        return Response(data, status=status.HTTP_200_OK)
