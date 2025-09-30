@@ -4,6 +4,11 @@ from .models import (
 	Coupon, CouponRedemption
 )
 
+# title and site header
+admin.site.site_title = "Oysloecore Admin"
+admin.site.site_header = "Oysloecore Admin Portal"
+admin.site.index_title = "Welcome to the Oysloecore Admin Portal"
+
 
 @admin.register(ChatRoom)
 class ChatRoomAdmin(admin.ModelAdmin):
