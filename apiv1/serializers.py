@@ -238,9 +238,12 @@ class SimpleStatusSerializer(serializers.Serializer):
     status = serializers.CharField()
     message = serializers.CharField(required=False, allow_blank=True)
 
+class VerifyOTPGetRequestSerializer(serializers.Serializer):
+    phone = serializers.CharField(max_length=10)
+
 
 class VerifyOTPPostRequestSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    phone = serializers.CharField(max_length=10)
     otp = serializers.CharField()
 
 
