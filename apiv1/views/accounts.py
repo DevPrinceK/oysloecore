@@ -4,10 +4,11 @@ from uuid import uuid4
 from django.contrib.auth import login
 from knox.models import AuthToken
 from rest_framework import permissions, status
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 from apiv1.serializers import (
     LoginSerializer, UserSerializer, RegisterUserSerializer,
-    ChangePasswordSerializer, ResetPasswordSerializer,
+    ChangePasswordSerializer, ResetPasswordSerializer, VerifyOTPGetRequestSerializer,
     VerifyOTPPostRequestSerializer, LoginResponseSerializer,
     RegisterUserResponseSerializer, GenericMessageSerializer, SimpleStatusSerializer,
     UserUpdateSerializer, AdminToggleUserSerializer, AdminDeleteUserSerializer,
@@ -107,21 +108,34 @@ class VerifyOTPAPI(APIView):
     '''Verify OTP api endpoint'''
     permission_classes = (permissions.AllowAny,)
 
-    @extend_schema(responses={200: GenericMessageSerializer, 400: GenericMessageSerializer}, operation_id='verify_otp_get')
+    # Note: GET requests should not declare a request body. Use 'parameters' to document query params.
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='phone',
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description='Phone number to which the OTP will be sent.'
+            )
+        ],
+        responses={200: GenericMessageSerializer, 400: GenericMessageSerializer, 404: GenericMessageSerializer},
+        operation_id='verify_otp_get'
+    )
     def get(self, request, *args, **kwargs):
         '''Use this endpoint to send OTP to the user'''
-        email = request.query_params.get('email')
-        if not email:
-            return Response({'error': 'email number is required'}, status=status.HTTP_400_BAD_REQUEST)
+        phone = request.query_params.get('phone')
+        if not phone:
+            return Response({'error': 'phone number is required'}, status=status.HTTP_400_BAD_REQUEST)
         code = random.randint(1000, 9999)
         try:
-            otp = OTP.objects.filter(email=email).first()
+            otp = OTP.objects.filter(phone=phone).first()
             if otp:
                 otp.delete()
-            user = User.objects.filter(email=email).first()
+            user = User.objects.filter(phone=phone).first()
             if not user:
                 return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
-            otp = OTP.objects.create(email=email, otp=code)
+            otp = OTP.objects.create(phone=phone, otp=code)
             otp.send_otp_to_user()
         except Exception as e:
             return Response({'error': 'Failed to send OTP'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -129,20 +143,20 @@ class VerifyOTPAPI(APIView):
 
     @extend_schema(request=VerifyOTPPostRequestSerializer, responses={200: GenericMessageSerializer, 400: GenericMessageSerializer, 404: GenericMessageSerializer}, operation_id='verify_otp_post')
     def post(self, request, *args, **kwargs):
-        email = request.data.get('email')
+        phone = request.data.get('phone')
         otp = request.data.get('otp')
         if not otp:
             return Response({'error': 'OTP is required'}, status=status.HTTP_400_BAD_REQUEST)
-        otp = OTP.objects.filter(email=email, otp=otp).first()
+        otp = OTP.objects.filter(phone=phone, otp=otp).first()
         if not otp:
             return Response({'error': 'Invalid OTP'}, status=status.HTTP_400_BAD_REQUEST)
         if otp.is_expired():
             return Response({'error': 'OTP has expired'}, status=status.HTTP_400_BAD_REQUEST)
         otp.delete()
-        user = User.objects.filter(email=email).first()
+        user = User.objects.filter(phone=phone).first()
         if not user:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
-        user.email_verified = True
+        user.phone_verified = True
         user.phone_verified = True
         user.save()
         return Response({'message': 'OTP verified successfully'}, status=status.HTTP_200_OK)
