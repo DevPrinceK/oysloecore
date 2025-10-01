@@ -18,7 +18,7 @@ from django.db import models
 from oysloecore.sysutils.constants import UserLevelTrack
 from oysloecore.sysutils.models import TimeStampedModel
 
-from notifications.utils import send_mail
+from notifications.utils import send_mail, send_sms
 
 
 # Referral code generator that does NOT touch the DB during import/app checks
@@ -178,7 +178,7 @@ class Wallet(TimeStampedModel):
 
 class OTP(TimeStampedModel):
     '''One Time Password model'''
-    email = models.CharField(max_length=100)
+    phone = models.CharField(max_length=10)
     otp = models.CharField(max_length=6)
 
     def is_expired(self) -> bool:
@@ -187,8 +187,8 @@ class OTP(TimeStampedModel):
     
     def send_otp_to_user(self) -> None:
         '''Send the OTP to the user'''
-        msg = f'Welcome to Oysloe Market Place.\n\nYour OTP is {self.otp}\n\nRegards,\nOysloe Team'
-        send_mail([self.email], 'OTP', msg)
+        msg = f'Welcome to Oysloe Marketplace.\n\nYour OTP is {self.otp}\n\nRegards,\nOysloe Team'
+        send_sms(message=msg, recipients=[self.phone])
 
     def __str__(self):
-        return self.email + ' - ' + self.otp
+        return self.phone + ' - ' + self.otp
