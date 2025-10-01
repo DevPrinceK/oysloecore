@@ -39,7 +39,7 @@ class WalletAdmin(admin.ModelAdmin):
 
 @admin.register(OTP)
 class OTPAdmin(admin.ModelAdmin):
-	list_display = ('id', 'email', 'otp', 'created_at')
-	search_fields = ('email', 'otp')
+	list_display = ('id', 'phone', 'otp', 'created_at')
+	search_fields = ('phone', 'otp')
 	list_filter = ('created_at',)
 	ordering = ('-created_at',)
