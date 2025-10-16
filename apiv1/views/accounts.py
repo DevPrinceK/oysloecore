@@ -55,6 +55,55 @@ class LoginAPI(APIView):
             "user": UserSerializer(user).data,
             "token": AuthToken.objects.create(user)[1],
         })
+    
+
+class OTPLoginAPI(APIView):
+    '''Login api endpoint using OTP'''
+    permission_classes = (permissions.AllowAny,)
+    serializer_class = VerifyOTPPostRequestSerializer
+
+    @extend_schema(request=VerifyOTPPostRequestSerializer, responses={200: LoginResponseSerializer, 401: GenericMessageSerializer}, operation_id='otp_login')
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception as e:
+            print(e)
+            for field in list(e.detail):
+                error_message = e.detail.get(field)[0]
+                field = f"{field}: " if field != "non_field_errors" else ""
+                response_data = {
+                    "status": "error",
+                    "error_message": f"{field} {error_message}",
+                    "user": None,
+                    "token": None,
+                }
+                return Response(response_data, status=status.HTTP_401_UNAUTHORIZED)
+        else:
+            phone = serializer.validated_data.get('phone')
+            otp_code = serializer.validated_data.get('otp')
+            otp = OTP.objects.filter(phone=phone, otp=otp_code).first()
+            if not otp:
+                return Response({'error': 'Invalid OTP'}, status=status.HTTP_400_BAD_REQUEST)
+            if otp.is_expired():
+                return Response({'error': 'OTP has expired'}, status=status.HTTP_400_BAD_REQUEST)
+            otp.delete()
+            user = User.objects.filter(phone=phone).first()
+            if not user:
+                return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+            user.phone_verified = True
+            user.save()
+       
+        login(request, user)
+
+        # REMOVE THE FOLLOW COMMENTS IF YOU DON'T WANT 
+        # MULTIPLE LOGINS FOR THE SAME USER
+        # Delete existing token
+        # AuthToken.objects.filter(user=user).delete()
+        return Response({
+            "user": UserSerializer(user).data,
+            "token": AuthToken.objects.create(user)[1],
+        })
 
 
 class RegisterUserAPI(APIView):

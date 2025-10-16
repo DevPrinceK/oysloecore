@@ -14,6 +14,7 @@ urlpatterns = [
 # accounts | authentications
 urlpatterns += [
     path('login/', views.LoginAPI.as_view(), name='login'),
+    path('otplogin/', views.OTPLoginAPI.as_view(), name='otp_login'),
     path('logout/', views.LogoutAPIView.as_view(), name='logout'),
     path('verifyotp/', views.VerifyOTPAPI.as_view(), name='verifyotp'),
     path('register/', views.RegisterUserAPI.as_view(), name='register'),
