@@ -41,7 +41,7 @@ class Message(TimeStampedModel):
 
 class Product(TimeStampedModel):
     '''Product model for storing product details'''
-    def generate_pid(self):
+    def generate_pid():
         '''Generates a unique product ID'''
         return 'pid_' + ''.join(random.choices(string.ascii_lowercase + string.digits, k=15))
 
