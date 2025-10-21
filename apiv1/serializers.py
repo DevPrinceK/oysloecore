@@ -104,13 +104,15 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 
 class ResetPasswordSerializer(serializers.Serializer):
-    email = serializers.CharField()
     new_password = serializers.CharField()
     confirm_password = serializers.CharField()
 
     def validate(self, data):
-        if not User.objects.filter(email=data.get("email")).exists():
-            raise serializers.ValidationError("Email does not exist")
+        if data.get("new_password") != data.get("confirm_password"):
+            raise serializers.ValidationError("Passwords do not match")
+        # check if password is too short
+        if len(data.get("new_password")) < 6:
+            raise serializers.ValidationError("Password is too short, must be at least 6 characters")
         return data
 
 
