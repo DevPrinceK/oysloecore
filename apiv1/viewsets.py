@@ -18,6 +18,8 @@ from django.utils import timezone
 class IsAuthenticated(permissions.IsAuthenticated):
     pass
 
+class AllowAny(permissions.AllowAny):
+    pass
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all().order_by('name')
@@ -35,7 +37,8 @@ class SubCategoryViewSet(viewsets.ModelViewSet):
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all().order_by('-created_at')
     serializer_class = ProductSerializer
-    permission_classes = [IsAuthenticated]
+    # permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     filterset_fields = ['category', 'pid']
     search_fields = ['name', 'description']
     ordering_fields = ['created_at', 'price']
@@ -51,21 +54,21 @@ class ProductViewSet(viewsets.ModelViewSet):
 class ProductImageViewSet(viewsets.ModelViewSet):
     queryset = ProductImage.objects.all().order_by('-created_at')
     serializer_class = ProductImageSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     filterset_fields = ['product']
 
 
 class FeatureViewSet(viewsets.ModelViewSet):
     queryset = Feature.objects.all().order_by('name')
     serializer_class = FeatureSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     filterset_fields = ['subcategory']
 
 
 class ProductFeatureViewSet(viewsets.ModelViewSet):
     queryset = ProductFeature.objects.all()
     serializer_class = ProductFeatureSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     filterset_fields = ['product', 'feature']
 
 
