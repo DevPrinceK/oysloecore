@@ -14,7 +14,9 @@ from apiv1.models import (
     ProductFeature,
     Coupon,
     CouponRedemption,
+    Location,
 )
+from oysloecore.sysutils.constants import ProductStatus
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -104,15 +106,13 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 
 class ResetPasswordSerializer(serializers.Serializer):
+    email = serializers.CharField()
     new_password = serializers.CharField()
     confirm_password = serializers.CharField()
 
     def validate(self, data):
-        if data.get("new_password") != data.get("confirm_password"):
-            raise serializers.ValidationError("Passwords do not match")
-        # check if password is too short
-        if len(data.get("new_password")) < 6:
-            raise serializers.ValidationError("Password is too short, must be at least 6 characters")
+        if not User.objects.filter(email=data.get("email")).exists():
+            raise serializers.ValidationError("Email does not exist")
         return data
 
 
@@ -156,6 +156,14 @@ class SubCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = SubCategory
         fields = "__all__"
+
+
+class AdminCategoryWithSubcategoriesSerializer(serializers.ModelSerializer):
+    subcategories = SubCategorySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Category
+        fields = ["id", "name", "description", "subcategories"]
 
 
 class MessageSerializer(serializers.ModelSerializer):
@@ -277,3 +285,20 @@ class RedeemReferralResponseSerializer(serializers.Serializer):
     cash_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
     remaining_points = serializers.IntegerField()
     wallet_balance = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+# --- Admin actions ---
+class AdminVerifyUserSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    admin_verified = serializers.BooleanField(required=False, default=True)
+
+
+class AdminChangeProductStatusSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    status = serializers.ChoiceField(choices=[tag.value for tag in ProductStatus])
+
+
+class LocationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Location
+        fields = ['id', 'name', 'description', 'is_active', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
