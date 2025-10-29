@@ -15,7 +15,7 @@ from django.db import IntegrityError, transaction
 
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.db import models
-from oysloecore.sysutils.constants import UserLevelTrack
+from oysloecore.sysutils.constants import Regions, UserLevelTrack
 from oysloecore.sysutils.models import TimeStampedModel
 
 from notifications.utils import send_mail, send_sms
@@ -39,6 +39,7 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
     name = models.CharField(max_length=255)
     address = models.CharField(max_length=500, blank=True, null=True)
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
+    admin_verified = models.BooleanField(default=False)
 
     deleted = models.BooleanField(default=False)  # Soft delete
 
@@ -192,3 +193,11 @@ class OTP(TimeStampedModel):
 
     def __str__(self):
         return self.phone + ' - ' + self.otp
+
+class Location(TimeStampedModel):
+    '''Location model'''
+    region = models.CharField(max_length=50, choices=[(t.value, t.value) for t in Regions], default=Regions.GREATER_ACCRA.value)
+    name = models.CharField(max_length=100, blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.name} - {self.region}"
