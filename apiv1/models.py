@@ -1,6 +1,7 @@
 from django.db import models
 import random, string
 from accounts.models import User
+from oysloecore.sysutils.constants import ProductStatus, ProductStatus, ProductType
 from oysloecore.sysutils.models import TimeStampedModel
 from django.utils import timezone
 from django.core.validators import MinValueValidator
@@ -49,6 +50,8 @@ class Product(TimeStampedModel):
     name = models.CharField(max_length=100)
     image = models.ImageField(upload_to='product_images/', null=True, blank=True)
     category = models.ForeignKey('Category', on_delete=models.SET_NULL, null=True, blank=True)  
+    type = models.CharField(max_length=100, choices=[(tag.value, tag.value) for tag in ProductType], default=ProductType.SALE.value)
+    status = models.CharField(max_length=20, choices=[(tag.value, tag.value) for tag in ProductStatus], default=ProductStatus.PENDING.value)
     description = models.TextField()
     price = models.DecimalField(max_digits=10, decimal_places=2)
     
@@ -119,6 +122,22 @@ class Review(TimeStampedModel):
 
     def __str__(self):
         return f"{self.user.name} - {self.product.name} Review"
+
+
+class Location(TimeStampedModel):
+    """Location model for admin-managed locations."""
+    name = models.CharField(max_length=150, unique=True)
+    description = models.TextField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['name']),
+            models.Index(fields=['is_active']),
+        ]
+
+    def __str__(self):
+        return self.name
 
 
 class Coupon(TimeStampedModel):
