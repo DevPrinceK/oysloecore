@@ -14,6 +14,7 @@ urlpatterns = [
 # accounts | authentications
 urlpatterns += [
     path('login/', views.LoginAPI.as_view(), name='login'),
+    path('adminlogin/', views.AdminLoginAPI.as_view(), name='admin_login'),
     path('otplogin/', views.OTPLoginAPI.as_view(), name='otp_login'),
     path('logout/', views.LogoutAPIView.as_view(), name='logout'),
     path('verifyotp/', views.VerifyOTPAPI.as_view(), name='verifyotp'),
@@ -23,6 +24,9 @@ urlpatterns += [
     path('resetpassword/', views.ResetPasswordAPIView.as_view(), name='resetpassword'),
     path('userpreferences/', views.UserPreferenceAPIView.as_view(), name='userpreferences'),
     path('redeem-points/', views.RedeemReferralAPIView.as_view(), name='redeem_points'),
+    path('admin/verifyuser/', views.AdminVerifyUserAPIView.as_view(), name='admin_verify_user'),
+    path('admin/users/', views.AdminListUsersAPIView.as_view(), name='admin_users'),
+    path('admin/categories/', views.AdminListCategoriesAPIView.as_view(), name='admin_categories'),
 ]
 
 # chat related
@@ -54,6 +58,8 @@ router.register('chatrooms', ChatRoomViewSet, basename='chatroom')
 router.register('messages', MessageViewSet, basename='message')
 from .viewsets import CouponViewSet
 router.register('coupons', CouponViewSet, basename='coupon')
+from .viewsets import LocationViewSet
+router.register('locations', LocationViewSet, basename='location')
 
 urlpatterns += [
     path('', include(router.urls)),
