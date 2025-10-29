@@ -4,8 +4,9 @@ from rest_framework.response import Response
 
 from apiv1.models import (
     Category, SubCategory, Product, ProductImage,
-    Feature, ProductFeature, Review, ChatRoom, Message, Coupon, CouponRedemption, Location
+    Feature, ProductFeature, Review, ChatRoom, Message, Coupon, CouponRedemption
 )
+from accounts.models import Location
 from apiv1.serializers import (
     CategorySerializer, SubCategorySerializer, ProductSerializer, ProductImageSerializer,
     FeatureSerializer, ProductFeatureSerializer, ReviewSerializer,
@@ -220,6 +221,6 @@ class LocationViewSet(viewsets.ModelViewSet):
     queryset = Location.objects.all().order_by('name')
     serializer_class = LocationSerializer
     permission_classes = [permissions.IsAdminUser]
-    filterset_fields = ['is_active', 'name']
-    search_fields = ['name', 'description']
+    filterset_fields = ['region', 'name']
+    search_fields = ['name', 'region']
     ordering_fields = ['name', 'created_at']
