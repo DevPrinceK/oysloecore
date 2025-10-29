@@ -11,7 +11,7 @@ from apiv1.serializers import (
     ChangePasswordSerializer, ResetPasswordSerializer, VerifyOTPGetRequestSerializer,
     VerifyOTPPostRequestSerializer, LoginResponseSerializer,
     RegisterUserResponseSerializer, GenericMessageSerializer, SimpleStatusSerializer,
-    UserUpdateSerializer, AdminToggleUserSerializer, AdminDeleteUserSerializer,
+    UserUpdateSerializer, AdminToggleUserSerializer, AdminDeleteUserSerializer, AdminVerifyUserSerializer,
     RedeemReferralResponseSerializer,
 )
 from rest_framework.response import Response
@@ -19,6 +19,8 @@ from rest_framework.views import APIView
 
 from accounts.models import OTP, User
 from apiv1.serializers import ChangePasswordSerializer, LoginSerializer, RegisterUserSerializer, ResetPasswordSerializer, UserSerializer
+from apiv1.serializers import AdminCategoryWithSubcategoriesSerializer
+from django.db.models import Q
 
 class LoginAPI(APIView):
     '''Login api endpoint'''
@@ -104,6 +106,81 @@ class OTPLoginAPI(APIView):
             "user": UserSerializer(user).data,
             "token": AuthToken.objects.create(user)[1],
         })
+
+
+class AdminLoginAPI(APIView):
+    '''Admin/Staff-only login endpoint (same as LoginAPI but enforces staff/admin).'''
+    permission_classes = (permissions.AllowAny,)
+    serializer_class = LoginSerializer
+
+    @extend_schema(request=LoginSerializer, responses={200: LoginResponseSerializer, 401: GenericMessageSerializer, 403: GenericMessageSerializer}, operation_id='admin_login')
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception as e:
+            print(e)
+            for field in list(e.detail):
+                error_message = e.detail.get(field)[0]
+                field = f"{field}: " if field != "non_field_errors" else ""
+                response_data = {
+                    "status": "error",
+                    "error_message": f"{field} {error_message}",
+                    "user": None,
+                    "token": None,
+                }
+                return Response(response_data, status=status.HTTP_401_UNAUTHORIZED)
+        else:
+            user = serializer.validated_data
+
+        # Enforce admin/staff status
+        if not (getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False)):
+            return Response({
+                "status": "error",
+                "error_message": "Not authorized: admin/staff only",
+                "user": None,
+                "token": None,
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        login(request, user)
+        return Response({
+            "user": UserSerializer(user).data,
+            "token": AuthToken.objects.create(user)[1],
+        })
+
+
+class AdminListUsersAPIView(APIView):
+    """List users (admin/staff only). Supports optional 'q' search across name, email, phone."""
+    permission_classes = (permissions.IsAdminUser,)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(name='q', type=OpenApiTypes.STR, location=OpenApiParameter.QUERY, required=False, description='Search by name, email or phone'),
+        ],
+        responses={200: UserSerializer(many=True)},
+        operation_id='admin_list_users'
+    )
+    def get(self, request, *args, **kwargs):
+        q = request.query_params.get('q')
+        qs = User.objects.filter(deleted=False)
+        if q:
+            qs = qs.filter(Q(name__icontains=q) | Q(email__icontains=q) | Q(phone__icontains=q))
+        qs = qs.order_by('-created_at')
+        return Response(UserSerializer(qs, many=True).data)
+
+
+class AdminListCategoriesAPIView(APIView):
+    """List all categories with nested subcategories (admin/staff only)."""
+    permission_classes = (permissions.IsAdminUser,)
+
+    @extend_schema(
+        responses={200: AdminCategoryWithSubcategoriesSerializer(many=True)},
+        operation_id='admin_list_categories'
+    )
+    def get(self, request, *args, **kwargs):
+        from apiv1.models import Category
+        qs = Category.objects.all().order_by('name')
+        return Response(AdminCategoryWithSubcategoriesSerializer(qs, many=True).data)
 
 
 class RegisterUserAPI(APIView):
@@ -369,3 +446,40 @@ class RedeemReferralAPIView(APIView):
             "wallet_balance": balance,
         }
         return Response(data, status=status.HTTP_200_OK)
+
+
+class AdminVerifyUserAPIView(APIView):
+    """Mark a user's admin verification status. Staff-only endpoint."""
+    permission_classes = (permissions.IsAdminUser,)
+    serializer_class = AdminVerifyUserSerializer
+
+    @extend_schema(
+        request=AdminVerifyUserSerializer,
+        responses={
+            200: UserSerializer,
+            400: GenericMessageSerializer,
+            401: GenericMessageSerializer,
+            403: GenericMessageSerializer,
+            404: GenericMessageSerializer,
+        },
+        operation_id='admin_verify_user',
+        description='Set admin verification status for a user by id. Staff-only.'
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data)
+        if not serializer.is_valid():
+            # return first error message consistently
+            first_field, errors = next(iter(serializer.errors.items()))
+            first_error = errors[0]
+            return Response({'message': f'{first_field}: {first_error}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user_id = serializer.validated_data['id']
+        admin_verified = serializer.validated_data.get('admin_verified', True)
+
+        target = User.objects.filter(id=user_id, deleted=False).first()
+        if not target:
+            return Response({'message': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        target.admin_verified = bool(admin_verified)
+        target.save(update_fields=['admin_verified', 'updated_at'])
+        return Response(UserSerializer(target).data, status=status.HTTP_200_OK)
