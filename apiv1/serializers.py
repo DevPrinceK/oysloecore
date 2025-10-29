@@ -14,8 +14,8 @@ from apiv1.models import (
     ProductFeature,
     Coupon,
     CouponRedemption,
-    Location,
 )
+from accounts.models import Location
 from oysloecore.sysutils.constants import ProductStatus
 
 
@@ -300,5 +300,5 @@ class AdminChangeProductStatusSerializer(serializers.Serializer):
 class LocationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Location
-        fields = ['id', 'name', 'description', 'is_active', 'created_at', 'updated_at']
+        fields = ['id', 'region', 'name', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
