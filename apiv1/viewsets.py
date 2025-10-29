@@ -4,15 +4,17 @@ from rest_framework.response import Response
 
 from apiv1.models import (
     Category, SubCategory, Product, ProductImage,
-    Feature, ProductFeature, Review, ChatRoom, Message, Coupon, CouponRedemption
+    Feature, ProductFeature, Review, ChatRoom, Message, Coupon, CouponRedemption, Location
 )
 from apiv1.serializers import (
     CategorySerializer, SubCategorySerializer, ProductSerializer, ProductImageSerializer,
     FeatureSerializer, ProductFeatureSerializer, ReviewSerializer,
-    ChatRoomSerializer, MessageSerializer
+    ChatRoomSerializer, MessageSerializer, AdminChangeProductStatusSerializer, LocationSerializer
 )
 from django.db import transaction
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema, OpenApiExample
+from oysloecore.sysutils.constants import ProductStatus
 
 
 class IsAuthenticated(permissions.IsAuthenticated):
@@ -49,6 +51,44 @@ class ProductViewSet(viewsets.ModelViewSet):
         category_id = request.query_params.get('category_id')
         qs = Product.objects.filter(category__id=category_id).order_by('?')[:50] if category_id else Product.objects.none()
         return Response(self.get_serializer(qs, many=True).data)
+
+    @action(detail=True, methods=['put'], url_path='set-status', permission_classes=[permissions.IsAdminUser])
+    @extend_schema(
+        request=AdminChangeProductStatusSerializer,
+        responses={200: ProductSerializer, 400: None},
+        operation_id='product_set_status',
+        description='Update product status (partial: id and status). Staff-only.',
+        examples=[
+            OpenApiExample(
+                'Set product status example',
+                value={"id": 42, "status": "ACTIVE"},
+                request_only=True,
+            )
+        ]
+    )
+    def set_status(self, request, pk=None):
+        """Set the product (ad) status. Staff-only."""
+        product = self.get_object()
+        serializer = AdminChangeProductStatusSerializer(data=request.data)
+        if not serializer.is_valid():
+            # return first error in consistent shape
+            first_field, errors = next(iter(serializer.errors.items()))
+            first_error = errors[0]
+            return Response({'detail': f'{first_field}: {first_error}'}, status=status.HTTP_400_BAD_REQUEST)
+        body_id = serializer.validated_data['id']
+        new_status = serializer.validated_data['status']
+        # Ensure provided id matches path id
+        try:
+            if int(body_id) != int(product.id):
+                return Response({'detail': 'id in body does not match resource id'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response({'detail': 'Invalid id'}, status=status.HTTP_400_BAD_REQUEST)
+        # Optional: guard against unknown even though serializer validates
+        if new_status not in [tag.value for tag in ProductStatus]:
+            return Response({'detail': 'Invalid status'}, status=status.HTTP_400_BAD_REQUEST)
+        product.status = new_status
+        product.save(update_fields=['status', 'updated_at'])
+        return Response(ProductSerializer(product, context={'request': request}).data)
 
 
 class ProductImageViewSet(viewsets.ModelViewSet):
@@ -174,3 +214,12 @@ class CouponViewSet(viewsets.ModelViewSet):
         coupon.refresh_from_db()
         from apiv1.serializers import CouponSerializer
         return Response({'coupon': CouponSerializer(coupon).data, 'status': 'redeemed'})
+
+
+class LocationViewSet(viewsets.ModelViewSet):
+    queryset = Location.objects.all().order_by('name')
+    serializer_class = LocationSerializer
+    permission_classes = [permissions.IsAdminUser]
+    filterset_fields = ['is_active', 'name']
+    search_fields = ['name', 'description']
+    ordering_fields = ['name', 'created_at']
