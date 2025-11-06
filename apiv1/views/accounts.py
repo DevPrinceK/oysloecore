@@ -19,6 +19,7 @@ from rest_framework.views import APIView
 
 from accounts.models import OTP, User
 from apiv1.serializers import ChangePasswordSerializer, LoginSerializer, RegisterUserSerializer, ResetPasswordSerializer, UserSerializer
+from notifications.models import Alert
 from apiv1.serializers import AdminCategoryWithSubcategoriesSerializer
 from django.db.models import Q
 
@@ -209,6 +210,8 @@ class RegisterUserAPI(APIView):
             user = serializer.save()
             user.is_active = True
             user.save()
+            # create welcome alert
+            Alert.objects.create(user=user, title='Welcome to Oysloe', body='Your account has been created successfully.', kind='ACCOUNT_CREATED')
             return Response({
                 "user": UserSerializer(user).data,
                 "token": AuthToken.objects.create(user)[1],
@@ -482,4 +485,6 @@ class AdminVerifyUserAPIView(APIView):
 
         target.admin_verified = bool(admin_verified)
         target.save(update_fields=['admin_verified', 'updated_at'])
+        if target.admin_verified:
+            Alert.objects.create(user=target, title='Account approved', body='Your account has been approved by admin.', kind='ACCOUNT_APPROVED')
         return Response(UserSerializer(target).data, status=status.HTTP_200_OK)
