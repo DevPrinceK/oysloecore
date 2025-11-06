@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import User, Wallet, OTP
+from .models import User, Wallet, OTP, Referral, Coupon, Location
 
 
 @admin.register(User)
@@ -43,3 +43,27 @@ class OTPAdmin(admin.ModelAdmin):
 	search_fields = ('phone', 'otp')
 	list_filter = ('created_at',)
 	ordering = ('-created_at',)
+
+
+@admin.register(Referral)
+class ReferralAdmin(admin.ModelAdmin):
+	list_display = ('id', 'inviter', 'invitee', 'code', 'used_referral_code', 'created_at')
+	search_fields = ('inviter__email', 'inviter__name', 'invitee__email', 'invitee__name', 'code', 'used_referral_code')
+	list_filter = ('created_at',)
+	ordering = ('-created_at',)
+
+
+@admin.register(Coupon)
+class AccountsCouponAdmin(admin.ModelAdmin):
+	list_display = ('id', 'code', 'points', 'is_expired', 'created_by', 'created_at')
+	search_fields = ('code', 'created_by__email', 'created_by__name')
+	list_filter = ('is_expired', 'created_at')
+	ordering = ('-created_at',)
+
+
+@admin.register(Location)
+class AccountsLocationAdmin(admin.ModelAdmin):
+	list_display = ('id', 'name', 'region', 'created_at', 'updated_at')
+	search_fields = ('name',)
+	list_filter = ('region', 'created_at')
+	ordering = ('name',)
