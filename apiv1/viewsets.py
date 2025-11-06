@@ -10,12 +10,13 @@ from accounts.models import Location
 from apiv1.serializers import (
     CategorySerializer, SubCategorySerializer, ProductSerializer, ProductImageSerializer,
     FeatureSerializer, ProductFeatureSerializer, ReviewSerializer,
-    ChatRoomSerializer, MessageSerializer, AdminChangeProductStatusSerializer, LocationSerializer
+    ChatRoomSerializer, MessageSerializer, AdminChangeProductStatusSerializer, LocationSerializer, CreateReviewSerializer, AlertSerializer
 )
 from django.db import transaction
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiExample
 from oysloecore.sysutils.constants import ProductStatus
+from notifications.models import Alert
 
 
 class IsAuthenticated(permissions.IsAuthenticated):
@@ -89,6 +90,24 @@ class ProductViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Invalid status'}, status=status.HTTP_400_BAD_REQUEST)
         product.status = new_status
         product.save(update_fields=['status', 'updated_at'])
+        # generate product approval alert if possible
+        if new_status in [ProductStatus.VERIFIED.value, ProductStatus.ACTIVE.value]:
+            owner = None
+            # Try common owner attribute names
+            for attr in ['owner', 'user', 'vendor', 'seller', 'created_by']:
+                if hasattr(product, attr):
+                    owner = getattr(product, attr)
+                    break
+            if owner and getattr(owner, 'pk', None):
+                try:
+                    Alert.objects.create(
+                        user=owner,
+                        title='Product approved',
+                        body=f'Your product "{product.name}" has been approved.',
+                        kind='PRODUCT_APPROVED'
+                    )
+                except Exception:
+                    pass
         return Response(ProductSerializer(product, context={'request': request}).data)
 
 
@@ -118,7 +137,17 @@ class ReviewViewSet(viewsets.ModelViewSet):
     serializer_class = ReviewSerializer
     permission_classes = [IsAuthenticated]
     filterset_fields = ['product', 'user']
+    
+    def get_serializer_class(self):
+        # Use a write-oriented serializer for creates to accept FK ids directly
+        if getattr(self, 'action', None) == 'create':
+            return CreateReviewSerializer
+        return super().get_serializer_class()
 
+    @extend_schema(request=CreateReviewSerializer, responses={201: ReviewSerializer})
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+    
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
@@ -220,7 +249,29 @@ class CouponViewSet(viewsets.ModelViewSet):
 class LocationViewSet(viewsets.ModelViewSet):
     queryset = Location.objects.all().order_by('name')
     serializer_class = LocationSerializer
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [permissions.IsAdminUser, permissions.IsAuthenticated]
     filterset_fields = ['region', 'name']
     search_fields = ['name', 'region']
     ordering_fields = ['name', 'created_at']
+
+
+class AlertViewSet(viewsets.ReadOnlyModelViewSet):
+    """Users can list and retrieve their in-app alerts."""
+    serializer_class = AlertSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Alert.objects.filter(user=self.request.user).order_by('-created_at')
+
+    @action(detail=False, methods=['post'], url_path='mark-all-read')
+    def mark_all_read(self, request):
+        Alert.objects.filter(user=request.user, is_read=False).update(is_read=True)
+        return Response({'status': 'ok'})
+
+    @action(detail=True, methods=['post'], url_path='mark-read')
+    def mark_read(self, request, pk=None):
+        alert = self.get_object()
+        if not alert.is_read:
+            alert.is_read = True
+            alert.save(update_fields=['is_read', 'updated_at'])
+        return Response({'status': 'ok'})
