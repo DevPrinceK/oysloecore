@@ -133,7 +133,6 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
                     continue
                 raise
 
-
 class Referral(TimeStampedModel):
     '''Model to track user referrals'''
     def generate_ref_code():
