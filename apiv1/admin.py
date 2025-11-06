@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
 	ChatRoom, Message, Product, ProductImage, Category, SubCategory, Feature, ProductFeature, Review,
-	Coupon, CouponRedemption
+	Coupon, CouponRedemption, Location
 )
 
 # title and site header
@@ -100,3 +100,11 @@ class CouponRedemptionAdmin(admin.ModelAdmin):
 	search_fields = ('coupon__code', 'user__email', 'user__name')
 	list_filter = ('created_at',)
 	ordering = ('-created_at',)
+
+
+@admin.register(Location)
+class ApiV1LocationAdmin(admin.ModelAdmin):
+	list_display = ('id', 'name', 'region', 'is_active', 'created_at')
+	search_fields = ('name',)
+	list_filter = ('region', 'is_active', 'created_at')
+	ordering = ('name',)
