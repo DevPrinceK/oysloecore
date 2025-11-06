@@ -16,6 +16,7 @@ from apiv1.models import (
     CouponRedemption,
 )
 from accounts.models import Location
+from notifications.models import Alert
 from oysloecore.sysutils.constants import ProductStatus
 
 
@@ -199,6 +200,20 @@ class ReviewSerializer(serializers.ModelSerializer):
         fields = ['id', 'user', 'product', 'rating', 'comment', 'created_at']
         read_only_fields = ['id', 'created_at']
 
+class CreateReviewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Review
+        fields = ['product', 'rating', 'comment']
+
+    def validate(self, attrs):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        product = attrs.get('product')
+        if user and getattr(user, 'is_authenticated', False) and product:
+            if Review.objects.filter(user=user, product=product).exists():
+                raise serializers.ValidationError('You have already reviewed this product.')
+        return attrs
+
 
 class CouponSerializer(serializers.ModelSerializer):
     remaining_uses = serializers.SerializerMethodField()
@@ -302,3 +317,10 @@ class LocationSerializer(serializers.ModelSerializer):
         model = Location
         fields = ['id', 'region', 'name', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class AlertSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Alert
+        fields = ['id', 'title', 'body', 'kind', 'is_read', 'created_at']
+        read_only_fields = ['id', 'created_at']
