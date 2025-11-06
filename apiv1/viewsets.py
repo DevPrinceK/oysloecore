@@ -275,3 +275,9 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
             alert.is_read = True
             alert.save(update_fields=['is_read', 'updated_at'])
         return Response({'status': 'ok'})
+
+    @action(detail=True, methods=['delete'], url_path='delete')
+    def delete_alert(self, request, pk=None):
+        alert = self.get_object()
+        alert.delete()
+        return Response({'status': 'deleted'})
