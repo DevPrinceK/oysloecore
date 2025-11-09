@@ -107,13 +107,13 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 
 class ResetPasswordSerializer(serializers.Serializer):
-    email = serializers.CharField()
+    phone = serializers.CharField()
     new_password = serializers.CharField()
     confirm_password = serializers.CharField()
 
     def validate(self, data):
-        if not User.objects.filter(email=data.get("email")).exists():
-            raise serializers.ValidationError("Email does not exist")
+        if not User.objects.filter(phone=data.get("phone")).exists():
+            raise serializers.ValidationError("Phone does not exist")
         return data
 
 
