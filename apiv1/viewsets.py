@@ -11,7 +11,7 @@ from accounts.models import Location
 from apiv1.serializers import (
     CategorySerializer, SubCategorySerializer, ProductSerializer, ProductImageSerializer,
     FeatureSerializer, ProductFeatureSerializer, ReviewSerializer,
-    ChatRoomSerializer, MessageSerializer, AdminChangeProductStatusSerializer, LocationSerializer, CreateReviewSerializer, AlertSerializer
+    ChatRoomSerializer, MessageSerializer, AdminChangeProductStatusSerializer, LocationSerializer, CreateReviewSerializer, AlertSerializer, MarkAsTakenSerializer
 )
 from django.db import transaction
 from django.utils import timezone
@@ -56,10 +56,42 @@ class ProductViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(qs, many=True).data)
     
     @action(detail=True, methods=['post'], url_path='mark-as-taken')
-    def mark_as_taken(self, request):
-        '''mark a product as taken. Only product owners can mark their products'''
+    @extend_schema(
+        request=MarkAsTakenSerializer,
+        responses={200: ProductSerializer, 400: None},
+        operation_id='product_mark_as_taken',
+        description='Mark a product as taken. Only the product owner can perform this action. Body must include the product id.'
+    )
+    def mark_as_taken(self, request, pk=None):
         product = self.get_object()
-        pass
+        serializer = MarkAsTakenSerializer(data=request.data)
+        if not serializer.is_valid():
+            first_field, errors = next(iter(serializer.errors.items()))
+            return Response({'detail': f'{first_field}: {errors[0]}'}, status=status.HTTP_400_BAD_REQUEST)
+        body_product_id = serializer.validated_data['product']
+        if int(body_product_id) != int(product.id):
+            return Response({'detail': 'product id does not match URL resource id'}, status=status.HTTP_400_BAD_REQUEST)
+        # ownership check
+        owner = getattr(product, 'owner', None)
+        if owner is None:
+            return Response({'detail': 'Product has no owner assigned'}, status=status.HTTP_400_BAD_REQUEST)
+        if request.user != owner and not request.user.is_staff:
+            return Response({'detail': 'You are not allowed to mark this product as taken'}, status=status.HTTP_403_FORBIDDEN)
+        if product.is_taken:
+            return Response({'detail': 'Product already marked as taken'}, status=status.HTTP_200_OK)
+        product.is_taken = True
+        product.save(update_fields=['is_taken', 'updated_at'])
+        # optional alert to owner
+        try:
+            Alert.objects.create(
+                user=owner,
+                title='Product marked as taken',
+                body=f'Your product "{product.name}" has been marked as taken.',
+                kind='PRODUCT_TAKEN'
+            )
+        except Exception:
+            pass
+        return Response(ProductSerializer(product, context={'request': request}).data)
 
 
     @action(detail=True, methods=['put'], url_path='set-status', permission_classes=[permissions.IsAdminUser])

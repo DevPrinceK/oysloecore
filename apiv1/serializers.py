@@ -333,6 +333,10 @@ class AdminChangeProductStatusSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=[tag.value for tag in ProductStatus])
 
 
+class MarkAsTakenSerializer(serializers.Serializer):
+    product = serializers.IntegerField()
+
+
 class AlertSerializer(serializers.ModelSerializer):
     class Meta:
         model = Alert
