@@ -138,9 +138,30 @@ class ProductFeatureSerializer(serializers.ModelSerializer):
         fields = ["id", "product", "feature", "value"]
 
 
+class LocationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Location
+        fields = ['id', 'region', 'name', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+class ProductLocationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Location
+        fields = ['id', 'region', 'name']
+        read_only_fields = ['id']
+
+class ProductOwnerSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'phone', 'name']
+        read_only_fields = ['id', 'email', 'phone', 'name']
+
+
 class ProductSerializer(serializers.ModelSerializer):
     images = ProductImageSerializer(many=True, read_only=True)
     product_features = ProductFeatureSerializer(many=True, read_only=True)
+    location = ProductLocationSerializer(read_only=True)
+    owner = ProductOwnerSerializer(read_only=True)
 
     class Meta:
         model = Product
@@ -310,13 +331,6 @@ class AdminVerifyUserSerializer(serializers.Serializer):
 class AdminChangeProductStatusSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     status = serializers.ChoiceField(choices=[tag.value for tag in ProductStatus])
-
-
-class LocationSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Location
-        fields = ['id', 'region', 'name', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
 
 
 class AlertSerializer(serializers.ModelSerializer):

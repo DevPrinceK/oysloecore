@@ -53,9 +53,11 @@ class Product(TimeStampedModel):
     location = models.ForeignKey('Location', on_delete=models.SET_NULL, null=True, blank=True)
     type = models.CharField(max_length=100, choices=[(tag.value, tag.value) for tag in ProductType], default=ProductType.SALE.value)
     status = models.CharField(max_length=20, choices=[(tag.value, tag.value) for tag in ProductStatus], default=ProductStatus.PENDING.value)
+    is_taken = models.BooleanField(default=False)
     description = models.TextField()
     price = models.DecimalField(max_digits=10, decimal_places=2)
     duration = models.CharField(max_length=100, default='One Time Payment')
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='products', null=True)
     
     @property
     def all_images(self):

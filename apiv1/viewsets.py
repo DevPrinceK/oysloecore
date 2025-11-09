@@ -1,3 +1,4 @@
+from requests import request
 from rest_framework import permissions, viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -53,6 +54,13 @@ class ProductViewSet(viewsets.ModelViewSet):
         category_id = request.query_params.get('category_id')
         qs = Product.objects.filter(category__id=category_id).order_by('?')[:50] if category_id else Product.objects.none()
         return Response(self.get_serializer(qs, many=True).data)
+    
+    @action(detail=True, methods=['post'], url_path='mark-as-taken')
+    def mark_as_taken(self, request):
+        '''mark a product as taken. Only product owners can mark their products'''
+        product = self.get_object()
+        pass
+
 
     @action(detail=True, methods=['put'], url_path='set-status', permission_classes=[permissions.IsAdminUser])
     @extend_schema(
@@ -135,7 +143,7 @@ class ProductFeatureViewSet(viewsets.ModelViewSet):
 class ReviewViewSet(viewsets.ModelViewSet):
     queryset = Review.objects.all().order_by('-created_at')
     serializer_class = ReviewSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, AllowAny]
     filterset_fields = ['product', 'user']
     
     def get_serializer_class(self):
@@ -146,9 +154,13 @@ class ReviewViewSet(viewsets.ModelViewSet):
 
     @extend_schema(request=CreateReviewSerializer, responses={201: ReviewSerializer})
     def create(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return Response({'detail': 'Authentication credentials were not provided.'}, status=status.HTTP_401_UNAUTHORIZED)
         return super().create(request, *args, **kwargs)
     
     def perform_create(self, serializer):
+        if not self.request.user.is_authenticated:
+            return Response({'detail': 'Authentication credentials were not provided.'}, status=status.HTTP_401_UNAUTHORIZED)
         serializer.save(user=self.request.user)
 
 
