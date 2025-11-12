@@ -29,13 +29,13 @@ class AllowAny(permissions.AllowAny):
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all().order_by('name')
     serializer_class = CategorySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny, IsAuthenticated]
 
 
 class SubCategoryViewSet(viewsets.ModelViewSet):
     queryset = SubCategory.objects.all().order_by('name')
     serializer_class = SubCategorySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny, IsAuthenticated]
     filterset_fields = ['category']
 
 
@@ -175,7 +175,7 @@ class ProductFeatureViewSet(viewsets.ModelViewSet):
 class ReviewViewSet(viewsets.ModelViewSet):
     queryset = Review.objects.all().order_by('-created_at')
     serializer_class = ReviewSerializer
-    permission_classes = [IsAuthenticated, AllowAny]
+    permission_classes = [AllowAny, IsAuthenticated]
     filterset_fields = ['product', 'user']
     
     def get_serializer_class(self):
