@@ -78,6 +78,28 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['phone', 'name']
 
+    @property
+    def active_ads(self) -> int:
+        from django.db.models import Q
+        from apiv1.models import Product
+        return Product.objects.filter(
+            Q(owner=self) & 
+            Q(is_taken=False) & 
+            (Q(status='VERIFIED') |
+            Q(status='ACTIVE'))
+            ).count()
+
+    @property
+    def taken_ads(self) -> int:
+        from django.db.models import Q
+        from apiv1.models import Product
+        return Product.objects.filter(
+            Q(owner=self) & 
+            Q(is_taken=True) & 
+            (Q(status='VERIFIED') |
+            Q(status='ACTIVE'))
+            ).count()
+
     def add_points(self, points: int) -> None:
         '''Add referral points and auto-update level.'''
         self.referral_points = (self.referral_points or 0) + int(points)

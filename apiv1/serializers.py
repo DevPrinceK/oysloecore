@@ -21,6 +21,8 @@ from oysloecore.sysutils.constants import ProductStatus
 
 
 class UserSerializer(serializers.ModelSerializer):
+    active_ads = serializers.IntegerField(read_only=True)
+    taken_ads = serializers.IntegerField(read_only=True)
     class Meta:
         model = User
         exclude = ["password", "groups", "user_permissions"]
