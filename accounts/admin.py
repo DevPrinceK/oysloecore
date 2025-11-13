@@ -19,7 +19,6 @@ class UserAdmin(BaseUserAdmin):
 		('Preferences', {'fields': ('preferred_notification_email', 'preferred_notification_phone')}),
 		('Status', {'fields': ('deleted', 'is_active', 'phone_verified', 'email_verified', 'created_from_app')}),
 		('Permissions', {'fields': ('is_staff', 'is_superuser', 'groups', 'user_permissions')}),
-		('Important dates', {'fields': ('last_login', 'created_at', 'updated_at')}),
 	)
 	add_fieldsets = (
 		(None, {

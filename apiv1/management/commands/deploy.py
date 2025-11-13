@@ -26,7 +26,7 @@ class Command(BaseCommand):
         # Example: systemctl restart gunicorn; systemctl restart celery; systemctl restart nginx
         # You may need to adjust these commands for your environment
         try:
-            subprocess.run(["systemctl", "restart", "gunicorn"], check=True)
+            subprocess.run(["systemctl", "restart", "oysloe"], check=True)
             # subprocess.run(["systemctl", "restart", "celery"], check=True)
             # sudo systemctl reload nginx
             subprocess.run(["sudo", "systemctl", "restart", "nginx"], check=True)
