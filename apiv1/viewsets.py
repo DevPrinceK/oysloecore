@@ -5,13 +5,18 @@ from rest_framework.response import Response
 
 from apiv1.models import (
     Category, SubCategory, Product, ProductImage,
-    Feature, ProductFeature, Review, ChatRoom, Message, Coupon, CouponRedemption
+    Feature, ProductFeature, Review, ChatRoom, Message,
+    Coupon, CouponRedemption, Feedback, Subscription,
+    UserSubscription, Payment,
 )
 from accounts.models import Location
 from apiv1.serializers import (
     CategorySerializer, SubCategorySerializer, ProductSerializer, ProductImageSerializer,
     FeatureSerializer, ProductFeatureSerializer, ReviewSerializer,
-    ChatRoomSerializer, MessageSerializer, AdminChangeProductStatusSerializer, LocationSerializer, CreateReviewSerializer, AlertSerializer, MarkAsTakenSerializer
+    ChatRoomSerializer, MessageSerializer, AdminChangeProductStatusSerializer,
+    LocationSerializer, CreateReviewSerializer, AlertSerializer, MarkAsTakenSerializer,
+    FeedbackSerializer, SubscriptionSerializer, UserSubscriptionSerializer,
+    PaymentSerializer,
 )
 from django.db import transaction
 from django.utils import timezone
@@ -42,12 +47,72 @@ class SubCategoryViewSet(viewsets.ModelViewSet):
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all().order_by('-created_at')
     serializer_class = ProductSerializer
-    # permission_classes = [IsAuthenticated]
-    permission_classes = [AllowAny]
+    # Only authenticated users can create products; anyone can list/retrieve.
+    permission_classes = [IsAuthenticated]
     filterset_fields = ['category', 'pid']
     search_fields = ['name', 'description']
     ordering_fields = ['created_at', 'price']
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+
+    def get_permissions(self):
+        """Allow unauthenticated read-only access but require auth for writes.
+
+        This keeps existing public browsing behaviour while enforcing
+        subscription checks on create/update actions.
+        """
+        if self.action in ['list', 'retrieve', 'related']:
+            return [AllowAny()]
+        return [permission() for permission in self.permission_classes]
+
+    def _get_active_user_subscription(self, user):
+        """Return the current active UserSubscription for a user, if any."""
+        now = timezone.now()
+        return (
+            UserSubscription.objects
+            .select_related('subscription')
+            .filter(user=user, is_active=True, start_date__lte=now, end_date__gte=now)
+            .order_by('-created_at')
+            .first()
+        )
+
+    def _enforce_subscription_limits(self, user):
+        """Ensure user has an active subscription and is within product limits.
+
+        Returns ``None`` when checks pass, or a DRF ``Response`` when they fail.
+        """
+        # Staff/admin users can always manage products without subscription checks
+        if getattr(user, 'is_staff', False):
+            return None
+
+        active_user_sub = self._get_active_user_subscription(user)
+        if not active_user_sub:
+            return Response(
+                {'detail': 'You must have an active subscription before adding products.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        subscription = active_user_sub.subscription
+        max_products = getattr(subscription, 'max_products', 0) or 0
+        if max_products and max_products > 0:
+            # Count products owned by this user that are not marked as taken
+            current_count = Product.objects.filter(owner=user, is_taken=False).count()
+            if current_count >= max_products:
+                return Response(
+                    {
+                        'detail': 'You have reached the maximum number of products for your subscription.',
+                        'max_products': max_products,
+                        'current_products': current_count,
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        return None
+
+    def create(self, request, *args, **kwargs):
+        """Create a product only if user has an active subscription within limits."""
+        error_response = self._enforce_subscription_limits(request.user)
+        if error_response is not None:
+            return error_response
+        return super().create(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'], url_path='related')
     def related(self, request):
@@ -299,13 +364,102 @@ class LocationViewSet(viewsets.ModelViewSet):
     ordering_fields = ['name', 'created_at']
 
 
-class AlertViewSet(viewsets.ReadOnlyModelViewSet):
-    """Users can list and retrieve their in-app alerts."""
+class FeedbackViewSet(viewsets.ModelViewSet):
+    """Users can submit feedback; admins can browse all feedback."""
+    serializer_class = FeedbackSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # During schema generation, spectacular sets swagger_fake_view to True
+        if getattr(self, 'swagger_fake_view', False):  # pragma: no cover
+            return Feedback.objects.none()
+        user = self.request.user
+        if user.is_staff:
+            # Admins see all feedback for dashboard purposes
+            return Feedback.objects.all().order_by('-created_at')
+        # Regular users see only their own feedback
+        return Feedback.objects.filter(user=user).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class SubscriptionViewSet(viewsets.ModelViewSet):
+    """Admin-only CRUD for subscription packages."""
+    queryset = Subscription.objects.all().order_by('-created_at')
+    serializer_class = SubscriptionSerializer
+    permission_classes = [permissions.IsAdminUser, permissions.IsAuthenticated]
+    filterset_fields = ['is_active', 'tier', 'price', 'duration_days', 'max_products']
+    search_fields = ['name', 'tier', 'description', 'features']
+    ordering_fields = ['created_at', 'price', 'duration_days', 'max_products']
+
+
+class UserSubscriptionViewSet(viewsets.ModelViewSet):
+    """Users can subscribe to packages and view their subscriptions."""
+    serializer_class = UserSubscriptionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # Admins can see all user subscriptions; regular users see only theirs
+        if getattr(self, 'swagger_fake_view', False):  # pragma: no cover
+            return UserSubscription.objects.none()
+        user = self.request.user
+        if user.is_staff:
+            return UserSubscription.objects.select_related('subscription', 'user').order_by('-created_at')
+        return UserSubscription.objects.select_related('subscription').filter(user=user).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        """Create a new subscription for the current user based on subscription_id."""
+        from django.utils import timezone as dj_timezone
+        subscription = serializer.validated_data['subscription']
+        start = dj_timezone.now()
+        end = start + dj_timezone.timedelta(days=subscription.duration_days)
+        serializer.save(user=self.request.user, start_date=start, end_date=end, is_active=True)
+
+
+class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only access to payment records.
+
+    This is mainly for admin dashboards and debugging; the actual Paystack
+    interaction (initiation/webhook) can be added as separate endpoints later.
+    """
+
+    serializer_class = PaymentSerializer
+    permission_classes = [permissions.IsAdminUser, permissions.IsAuthenticated]
+    filterset_fields = ['status', 'provider', 'subscription']
+    search_fields = ['reference']
+    ordering_fields = ['created_at', 'amount']
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):  # pragma: no cover
+            return Payment.objects.none()
+        return Payment.objects.select_related('user', 'subscription').order_by('-created_at')
+
+
+class AlertViewSet(viewsets.ModelViewSet):
+    """Users can manage their in-app alerts; admins can manage all. When creating an alert as an admin, you can specify the target user by setting the 'user' field in the alert data."""
     serializer_class = AlertSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Alert.objects.filter(user=self.request.user).order_by('-created_at')
+        # During schema generation, spectacular sets swagger_fake_view to True
+        if getattr(self, 'swagger_fake_view', False):  # pragma: no cover
+            return Alert.objects.none()
+        user = self.request.user
+        if user.is_staff:
+            # Admins see all alerts (for dashboard/control)
+            return Alert.objects.all().order_by('-created_at')
+        # Regular users see only their own alerts
+        return Alert.objects.filter(user=user).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        """Admins can target any user; regular users can only create for themselves."""
+        user = self.request.user
+        if user.is_staff:
+            # Allow staff to specify target user via serializer if provided
+            return serializer.save()
+        # Force non-staff alerts to be attached to the requesting user
+        serializer.save(user=user)
 
     @action(detail=False, methods=['post'], url_path='mark-all-read')
     def mark_all_read(self, request):

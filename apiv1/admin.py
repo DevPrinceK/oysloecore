@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
 	ChatRoom, Message, Product, ProductImage, Category, SubCategory, Feature, ProductFeature, Review,
-	Coupon, CouponRedemption, Location
+	Coupon, CouponRedemption, Location, Feedback, Subscription, UserSubscription
 )
 
 # title and site header
@@ -108,3 +108,27 @@ class ApiV1LocationAdmin(admin.ModelAdmin):
 	search_fields = ('name',)
 	list_filter = ('region', 'is_active', 'created_at')
 	ordering = ('name',)
+
+
+@admin.register(Feedback)
+class FeedbackAdmin(admin.ModelAdmin):
+	list_display = ('id', 'user', 'rating', 'created_at')
+	search_fields = ('user__email', 'user__name', 'message')
+	list_filter = ('rating', 'created_at')
+	ordering = ('-created_at',)
+
+
+@admin.register(Subscription)
+class SubscriptionAdmin(admin.ModelAdmin):
+	list_display = ('id', 'name', 'tier', 'price', 'original_price', 'discountn_percentage', 'duration_days', 'max_products', 'is_active', 'created_at')
+	search_fields = ('name', 'tier', 'description', 'features')
+	list_filter = ('is_active', 'tier', 'created_at')
+	ordering = ('-created_at',)
+
+
+@admin.register(UserSubscription)
+class UserSubscriptionAdmin(admin.ModelAdmin):
+	list_display = ('id', 'user', 'subscription', 'start_date', 'end_date', 'is_active', 'created_at')
+	search_fields = ('user__email', 'user__name', 'subscription__name')
+	list_filter = ('is_active', 'subscription', 'created_at')
+	ordering = ('-created_at',)

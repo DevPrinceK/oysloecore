@@ -14,6 +14,10 @@ from apiv1.models import (
     ProductFeature,
     Coupon,
     CouponRedemption,
+    Feedback,
+    Subscription,
+    UserSubscription,
+    Payment,
 )
 from accounts.models import Location
 from notifications.models import Alert
@@ -170,6 +174,15 @@ class ProductSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class FeedbackSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+
+    class Meta:
+        model = Feedback
+        fields = ['id', 'user', 'rating', 'message', 'created_at']
+        read_only_fields = ['id', 'user', 'created_at']
+
+
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
@@ -261,6 +274,53 @@ class CouponRedemptionSerializer(serializers.ModelSerializer):
         model = CouponRedemption
         fields = ['id', 'coupon', 'user', 'created_at']
         read_only_fields = ['id', 'created_at']
+
+
+class SubscriptionSerializer(serializers.ModelSerializer):
+    effective_price = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    features_list = serializers.ListField(child=serializers.CharField(), read_only=True)
+
+    class Meta:
+        model = Subscription
+        fields = [
+            'id', 'name', 'tier', 'description', 'price', 'original_price', 'multiplier',
+            'discountn_percentage', 'effective_price', 'features', 'features_list', 'duration_days',
+            'max_products', 'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'effective_price', 'features_list']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Populate computed fields
+        data['effective_price'] = str(instance.get_effective_price())
+        data['features_list'] = instance.get_features_list()
+        return data
+
+class PaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = [
+            'id', 'user', 'subscription', 'amount', 'currency', 'provider',
+            'reference', 'status', 'channel', 'raw_response',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'user', 'status', 'channel', 'raw_response', 'created_at', 'updated_at']
+
+class UserSubscriptionSerializer(serializers.ModelSerializer):
+    subscription = SubscriptionSerializer(read_only=True)
+    payment = PaymentSerializer(read_only=True)
+    subscription_id = serializers.PrimaryKeyRelatedField(
+        queryset=Subscription.objects.filter(is_active=True),
+        write_only=True,
+        source='subscription'
+    )
+
+    class Meta:
+        model = UserSubscription
+        fields = ['id', 'subscription', 'subscription_id', 'payment', 'start_date', 'end_date', 'is_active', 'created_at']
+        read_only_fields = ['id', 'subscription', 'payment', 'start_date', 'end_date', 'is_active', 'created_at']
+
+
 
 # ----- APIView documentation serializers -----
 

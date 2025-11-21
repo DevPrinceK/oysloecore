@@ -126,6 +126,15 @@ class Review(TimeStampedModel):
 
     def __str__(self):
         return f"{self.user.name} - {self.product.name} Review"
+    
+class Feedback(TimeStampedModel):
+    '''Feedback model for storing user feedback of the app'''
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    rating = models.IntegerField()
+    message = models.TextField()
+
+    def __str__(self):
+        return f"{self.user.name} - {self.rating} Feedback"
 
 
 class Location(TimeStampedModel):
@@ -199,3 +208,109 @@ class CouponRedemption(TimeStampedModel):
 
     def __str__(self):
         return f"{self.user.email} -> {self.coupon.code}"
+
+
+class Subscription(TimeStampedModel):
+    """Subscription/package model for different plans users can buy."""
+    name = models.CharField(max_length=100, unique=True)
+    tier = models.CharField(max_length=50,)
+    description = models.TextField(blank=True, null=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    original_price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    multiplier = models.DecimalField(max_digits=5, decimal_places=2, default=1.0, help_text='Just a tag to be used for differentiating plans')
+    discountn_percentage = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True, help_text='Percentage discount on the original price if any')
+    features = models.TextField(help_text='Comma-separated list of features included in this subscription')
+    duration_days = models.PositiveIntegerField(help_text='Duration of the subscription in days')
+    max_products = models.PositiveIntegerField(help_text='Maximum number of products allowed under this subscription. Use 0 for unlimited.')
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.name
+
+    def get_effective_price(self):
+        """Return the price after applying discount percentage if original_price and discountn_percentage are set.
+        Falls back to `price` when discount data is incomplete."""
+        try:
+            if self.original_price and self.discountn_percentage:
+                # discountn_percentage assumed to be e.g. 10 for 10%
+                discount_fraction = (self.discountn_percentage or 0) / 100
+                discounted = self.original_price * (1 - discount_fraction)
+                # Ensure not negative
+                if discounted < 0:
+                    return self.price
+                return discounted
+        except Exception:
+            return self.price
+        return self.price
+
+    def get_features_list(self):
+        """Return features as a list split on commas, trimming whitespace."""
+        if not self.features:
+            return []
+        return [f.strip() for f in self.features.split(',') if f.strip()]
+
+
+class UserSubscription(TimeStampedModel):
+    """Tracks which subscription a user has and until when it is valid."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='subscriptions')
+    subscription = models.ForeignKey(Subscription, on_delete=models.CASCADE, related_name='user_subscriptions')
+    payment = models.OneToOneField(
+        'Payment',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='user_subscription',
+        help_text='Payment record that funded this subscription (if any).',
+    )
+
+    start_date = models.DateTimeField(default=timezone.now)
+    end_date = models.DateTimeField()
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.email} -> {self.subscription.name} ({self.start_date} - {self.end_date})"
+
+
+class Payment(TimeStampedModel):
+    """Payment records for subscriptions and other billable actions.
+
+    Initially focused on subscription purchases via Paystack.
+    """
+
+    STATUS_PENDING = 'PENDING'
+    STATUS_SUCCESS = 'SUCCESS'
+    STATUS_FAILED = 'FAILED'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_SUCCESS, 'Success'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='payments')
+    subscription = models.ForeignKey(
+        Subscription,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='payments',
+        help_text='Subscription this payment is intended for (if applicable).',
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    currency = models.CharField(max_length=10, default='GHS')
+    provider = models.CharField(max_length=30, default='paystack')
+    reference = models.CharField(max_length=100, unique=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    channel = models.CharField(max_length=50, blank=True, null=True)
+    raw_response = models.JSONField(blank=True, null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['reference']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.email} - {self.provider.upper()} {self.reference} ({self.status})"

@@ -4,7 +4,7 @@ from . import views
 from .viewsets import (
     CategoryViewSet, SubCategoryViewSet, ProductViewSet, ProductImageViewSet,
     FeatureViewSet, ProductFeatureViewSet, ReviewViewSet,
-    ChatRoomViewSet, MessageViewSet
+    ChatRoomViewSet, MessageViewSet, FeedbackViewSet, SubscriptionViewSet, UserSubscriptionViewSet
 )
 
 urlpatterns = [
@@ -53,6 +53,9 @@ from .viewsets import LocationViewSet
 router.register('locations', LocationViewSet, basename='location')
 from .viewsets import AlertViewSet
 router.register('alerts', AlertViewSet, basename='alert')
+router.register('feedback', FeedbackViewSet, basename='feedback')
+router.register('subscriptions', SubscriptionViewSet, basename='subscription')
+router.register('user-subscriptions', UserSubscriptionViewSet, basename='user-subscription')
 
 urlpatterns += [
     path('', include(router.urls)),
