@@ -1,4 +1,4 @@
-from requests import request
+import requests
 from rest_framework import permissions, viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -23,6 +23,7 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiExample
 from oysloecore.sysutils.constants import ProductStatus
 from notifications.models import Alert
+from django.conf import settings
 
 
 class IsAuthenticated(permissions.IsAuthenticated):
@@ -434,6 +435,152 @@ class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
         if getattr(self, 'swagger_fake_view', False):  # pragma: no cover
             return Payment.objects.none()
         return Payment.objects.select_related('user', 'subscription').order_by('-created_at')
+
+
+class PaystackPaymentViewSet(viewsets.ViewSet):
+    """Endpoints for initiating and handling Paystack payments for subscriptions."""
+
+    permission_classes = [IsAuthenticated]
+
+    def _get_amount_for_subscription(self, subscription: Subscription):
+        # Use the effective price helper if available
+        amount = subscription.get_effective_price() if hasattr(subscription, 'get_effective_price') else subscription.price
+        return int(amount * 100)  # Paystack expects amount in kobo/pesewas
+
+    @action(detail=False, methods=['post'], url_path='initiate')
+    def initiate(self, request):
+        """Initiate a Paystack payment for a subscription.
+
+        Expects: {"subscription_id": <id>, "callback_url": "https://..."}
+        """
+        user = request.user
+        subscription_id = request.data.get('subscription_id')
+        callback_url = request.data.get('callback_url')
+
+        if not subscription_id:
+            return Response({'detail': 'subscription_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            subscription = Subscription.objects.get(id=subscription_id, is_active=True)
+        except Subscription.DoesNotExist:
+            return Response({'detail': 'Subscription not found or inactive'}, status=status.HTTP_404_NOT_FOUND)
+
+        amount = self._get_amount_for_subscription(subscription)
+
+        headers = {
+            'Authorization': f"Bearer {settings.PAYSTACK_SECRET_KEY}",
+            'Content-Type': 'application/json',
+        }
+        payload = {
+            'email': user.email,
+            'amount': amount,
+        }
+        if callback_url:
+            payload['callback_url'] = callback_url
+
+        init_url = f"{getattr(settings, 'PAYSTACK_BASE_URL', 'https://api.paystack.co')}/transaction/initialize"
+        try:
+            resp = requests.post(init_url, json=payload, headers=headers, timeout=10)
+            data = resp.json()
+        except Exception as exc:
+            return Response({'detail': f'Error communicating with Paystack: {exc}'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        if not resp.ok or not data.get('status'):
+            return Response({'detail': 'Failed to initialize Paystack transaction', 'response': data}, status=status.HTTP_400_BAD_REQUEST)
+
+        paystack_data = data.get('data') or {}
+        reference = paystack_data.get('reference')
+        authorization_url = paystack_data.get('authorization_url')
+
+        if not reference or not authorization_url:
+            return Response({'detail': 'Invalid response from Paystack', 'response': data}, status=status.HTTP_502_BAD_GATEWAY)
+
+        # Create a pending payment record
+        payment = Payment.objects.create(
+            user=user,
+            subscription=subscription,
+            amount=amount / 100,
+            currency='GHS',
+            provider='paystack',
+            reference=reference,
+            status=Payment.STATUS_PENDING,
+            raw_response=data,
+        )
+
+        return Response(
+            {
+                'authorization_url': authorization_url,
+                'reference': reference,
+                'payment_id': payment.id,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=False, methods=['post'], url_path='webhook', permission_classes=[])
+    def webhook(self, request):
+        """Paystack webhook to confirm payments and create UserSubscriptions.
+
+        Configure Paystack to send webhooks to this endpoint.
+        """
+        # Optional: verify Paystack signature header if configured
+        secret_key = settings.PAYSTACK_SECRET_KEY
+        payload = request.data
+        event = payload.get('event')
+        data = payload.get('data') or {}
+        reference = data.get('reference')
+
+        if not reference:
+            return Response({'detail': 'Missing reference in webhook payload'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            payment = Payment.objects.select_related('subscription', 'user').get(reference=reference)
+        except Payment.DoesNotExist:
+            return Response({'detail': 'Payment not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Only process successful charge events
+        if event not in ['charge.success', 'subscription.create']:  # keep flexible
+            return Response({'status': 'ignored'})
+
+        # Verify transaction with Paystack for safety
+        verify_url = f"{getattr(settings, 'PAYSTACK_BASE_URL', 'https://api.paystack.co')}/transaction/verify/{reference}"
+        headers = {
+            'Authorization': f"Bearer {secret_key}",
+        }
+        try:
+            resp = requests.get(verify_url, headers=headers, timeout=10)
+            verify_data = resp.json()
+        except Exception as exc:
+            return Response({'detail': f'Error verifying transaction: {exc}'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        if not resp.ok or not verify_data.get('status'):
+            payment.status = Payment.STATUS_FAILED
+            payment.raw_response = verify_data
+            payment.save(update_fields=['status', 'raw_response', 'updated_at'])
+            return Response({'detail': 'Verification failed', 'response': verify_data}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Mark payment as successful
+        payment.status = Payment.STATUS_SUCCESS
+        payment.channel = (verify_data.get('data') or {}).get('channel')
+        payment.raw_response = verify_data
+        payment.save(update_fields=['status', 'channel', 'raw_response', 'updated_at'])
+
+        # Create or activate a UserSubscription for this user & subscription
+        subscription = payment.subscription
+        user = payment.user
+        if subscription and user:
+            from django.utils import timezone as dj_timezone
+            start = dj_timezone.now()
+            end = start + dj_timezone.timedelta(days=subscription.duration_days)
+            UserSubscription.objects.create(
+                user=user,
+                subscription=subscription,
+                payment=payment,
+                start_date=start,
+                end_date=end,
+                is_active=True,
+            )
+
+        return Response({'status': 'success'})
 
 
 class AlertViewSet(viewsets.ModelViewSet):

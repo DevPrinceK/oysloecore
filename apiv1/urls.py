@@ -4,7 +4,9 @@ from . import views
 from .viewsets import (
     CategoryViewSet, SubCategoryViewSet, ProductViewSet, ProductImageViewSet,
     FeatureViewSet, ProductFeatureViewSet, ReviewViewSet,
-    ChatRoomViewSet, MessageViewSet, FeedbackViewSet, SubscriptionViewSet, UserSubscriptionViewSet
+    ChatRoomViewSet, MessageViewSet, FeedbackViewSet,
+    SubscriptionViewSet, UserSubscriptionViewSet, PaymentViewSet,
+    PaystackPaymentViewSet,
 )
 
 urlpatterns = [
@@ -56,6 +58,8 @@ router.register('alerts', AlertViewSet, basename='alert')
 router.register('feedback', FeedbackViewSet, basename='feedback')
 router.register('subscriptions', SubscriptionViewSet, basename='subscription')
 router.register('user-subscriptions', UserSubscriptionViewSet, basename='user-subscription')
+router.register('payments', PaymentViewSet, basename='payment')
+router.register('paystack', PaystackPaymentViewSet, basename='paystack')
 
 urlpatterns += [
     path('', include(router.urls)),
