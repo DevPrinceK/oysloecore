@@ -284,7 +284,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         model = Subscription
         fields = [
             'id', 'name', 'tier', 'description', 'price', 'original_price', 'multiplier',
-            'discountn_percentage', 'effective_price', 'features', 'features_list', 'duration_days',
+            'discount_percentage', 'effective_price', 'features', 'features_list', 'duration_days',
             'max_products', 'is_active', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'effective_price', 'features_list']
