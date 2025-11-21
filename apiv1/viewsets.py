@@ -422,7 +422,7 @@ class PaymentViewSet(viewsets.ReadOnlyModelViewSet):
     """Read-only access to payment records.
 
     This is mainly for admin dashboards and debugging; the actual Paystack
-    interaction (initiation/webhook) can be added as separate endpoints later.
+    interaction (initiation/webhook) endpoints are implemented in the PaystackPaymentViewSet.
     """
 
     serializer_class = PaymentSerializer

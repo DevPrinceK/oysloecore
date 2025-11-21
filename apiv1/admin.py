@@ -120,7 +120,7 @@ class FeedbackAdmin(admin.ModelAdmin):
 
 @admin.register(Subscription)
 class SubscriptionAdmin(admin.ModelAdmin):
-	list_display = ('id', 'name', 'tier', 'price', 'original_price', 'discountn_percentage', 'duration_days', 'max_products', 'is_active', 'created_at')
+	list_display = ('id', 'name', 'tier', 'price', 'original_price', 'discount_percentage', 'duration_days', 'max_products', 'is_active', 'created_at')
 	search_fields = ('name', 'tier', 'description', 'features')
 	list_filter = ('is_active', 'tier', 'created_at')
 	ordering = ('-created_at',)

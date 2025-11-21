@@ -218,7 +218,7 @@ class Subscription(TimeStampedModel):
     price = models.DecimalField(max_digits=10, decimal_places=2)
     original_price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     multiplier = models.DecimalField(max_digits=5, decimal_places=2, default=1.0, help_text='Just a tag to be used for differentiating plans')
-    discountn_percentage = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True, help_text='Percentage discount on the original price if any')
+    discount_percentage = models.DecimalField(max_digits=5, decimal_places=2, blank=True, null=True, help_text='Percentage discount on the original price if any')
     features = models.TextField(help_text='Comma-separated list of features included in this subscription')
     duration_days = models.PositiveIntegerField(help_text='Duration of the subscription in days')
     max_products = models.PositiveIntegerField(help_text='Maximum number of products allowed under this subscription. Use 0 for unlimited.')
@@ -228,12 +228,12 @@ class Subscription(TimeStampedModel):
         return self.name
 
     def get_effective_price(self):
-        """Return the price after applying discount percentage if original_price and discountn_percentage are set.
+        """Return the price after applying discount percentage if original_price and discount_percentage are set.
         Falls back to `price` when discount data is incomplete."""
         try:
-            if self.original_price and self.discountn_percentage:
-                # discountn_percentage assumed to be e.g. 10 for 10%
-                discount_fraction = (self.discountn_percentage or 0) / 100
+            if self.original_price and self.discount_percentage:
+                # discount_percentage assumed to be e.g. 10 for 10%
+                discount_fraction = (self.discount_percentage or 0) / 100
                 discounted = self.original_price * (1 - discount_fraction)
                 # Ensure not negative
                 if discounted < 0:
