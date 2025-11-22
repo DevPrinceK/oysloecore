@@ -425,7 +425,12 @@ class MarkAsTakenSerializer(serializers.Serializer):
 
 
 class AlertSerializer(serializers.ModelSerializer):
+    user = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        write_only=True,
+    )
+
     class Meta:
         model = Alert
-        fields = ['id', 'title', 'body', 'kind', 'is_read', 'created_at']
+        fields = ['id', 'user', 'title', 'body', 'kind', 'is_read', 'created_at']
         read_only_fields = ['id', 'created_at']
