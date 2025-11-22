@@ -102,6 +102,16 @@ class Feature(TimeStampedModel):
     def __str__(self):
         return f"{self.subcategory.name} - {self.name}"
     
+
+# class FeatureValue(TimeStampedModel):
+#     '''Model to store possible values for a feature'''
+#     feature = models.ForeignKey(Feature, on_delete=models.CASCADE, related_name='values')
+#     value = models.CharField(max_length=255)
+
+#     def __str__(self):
+#         return f"{self.feature.name} - {self.value}"
+
+    
 class ProductFeature(TimeStampedModel):
     '''Intermediate model to link products with their features and values'''
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='product_features')
@@ -342,3 +352,23 @@ class AccountDeleteRequest(TimeStampedModel):
 
     def __str__(self):
         return f"Delete request for {self.user.email} - {self.status}"
+    
+
+class PrivacyPolicy(TimeStampedModel):
+    '''Model to store privacy policy content'''
+    title = models.CharField(max_length=200, default='Privacy Policy')
+    date = models.DateField()
+    body = models.TextField()
+
+    def __str__(self):
+        return f"Privacy Policy updated on {self.updated_at.strftime('%Y-%m-%d %H:%M:%S')}"
+    
+
+class TermsAndConditions(TimeStampedModel):
+    '''Model to store terms and conditions content'''
+    title = models.CharField(max_length=200, default='Terms and Conditions')
+    date = models.DateField()
+    body = models.TextField()
+
+    def __str__(self):
+        return f"Terms and Conditions updated on {self.updated_at.strftime('%Y-%m-%d %H:%M:%S')}"
