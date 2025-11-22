@@ -17,21 +17,25 @@ class SaveFCMTokenResponseSerializer(serializers.Serializer):
     status = serializers.CharField()
 
 class SaveFCMTokenView(APIView):
+    @extend_schema(
+        request=SaveFCMTokenRequestSerializer,
+        responses={201: SaveFCMTokenResponseSerializer, 400: SaveFCMTokenResponseSerializer},
+    )
     def post(self, request):
         token = request.data.get("token")
         user_id = request.data.get("user_id")
 
         if not token or not user_id:
-            return Response({"error": "Missing token or user_id"}, status=400)
+            return Response({"status": "Missing token or user_id"}, status=status.HTTP_400_BAD_REQUEST)
 
-        user = User.objects.get(id=user_id)
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"status": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
         FCMDevice.objects.update_or_create(user=user, token=token)
 
-        return Response({"status": "Token saved"}, status=201)
-
-    @extend_schema(request=SaveFCMTokenRequestSerializer, responses={201: SaveFCMTokenResponseSerializer, 400: SaveFCMTokenResponseSerializer})
-    def post(self, request):
-        return super().post(request)
+        return Response({"status": "Token saved"}, status=status.HTTP_201_CREATED)
 
 
 class FCMDeviceViewSet(viewsets.ModelViewSet):
