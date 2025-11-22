@@ -7,7 +7,7 @@ from apiv1.models import (
     Category, SubCategory, Product, ProductImage,
     Feature, ProductFeature, Review, ChatRoom, Message,
     Coupon, CouponRedemption, Feedback, Subscription,
-    UserSubscription, Payment,
+    UserSubscription, Payment, AccountDeleteRequest,
 )
 from accounts.models import Location
 from apiv1.serializers import (
@@ -16,7 +16,7 @@ from apiv1.serializers import (
     ChatRoomSerializer, MessageSerializer, AdminChangeProductStatusSerializer,
     LocationSerializer, CreateReviewSerializer, AlertSerializer, MarkAsTakenSerializer,
     FeedbackSerializer, SubscriptionSerializer, UserSubscriptionSerializer,
-    PaymentSerializer,
+    PaymentSerializer, AccountDeleteRequestSerializer,
 )
 from django.db import transaction
 from django.utils import timezone
@@ -626,3 +626,65 @@ class AlertViewSet(viewsets.ModelViewSet):
         alert = self.get_object()
         alert.delete()
         return Response({'status': 'deleted'})
+
+
+class AccountDeleteRequestViewSet(viewsets.ModelViewSet):
+    """Users can submit account delete requests; admins can review/approve."""
+
+    serializer_class = AccountDeleteRequestSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ['status']
+    ordering_fields = ['created_at']
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):  # pragma: no cover
+            return AccountDeleteRequest.objects.none()
+        user = self.request.user
+        if user.is_staff:
+            return AccountDeleteRequest.objects.select_related('user').order_by('-created_at')
+        return AccountDeleteRequest.objects.filter(user=user).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        # Always attach to current user; status remains PENDING
+        serializer.save(user=self.request.user)
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser], url_path='approve')
+    def approve(self, request, pk=None):
+        """Admin approves the delete request; optionally soft-deletes user."""
+        delete_request = self.get_object()
+        if delete_request.status != AccountDeleteRequest.STATUS_PENDING:
+            return Response({'detail': 'Request already processed'}, status=status.HTTP_400_BAD_REQUEST)
+
+        delete_request.status = AccountDeleteRequest.STATUS_APPROVED
+        delete_request.admin_comment = request.data.get('admin_comment')
+        delete_request.processed_at = timezone.now()
+        delete_request.save(update_fields=['status', 'admin_comment', 'processed_at', 'updated_at'])
+
+        user = delete_request.user
+        # Soft-delete pattern if User has `is_active` or `deleted` flag
+        updated_fields = []
+        if hasattr(user, 'is_active'):
+            user.is_active = False
+            updated_fields.append('is_active')
+        if hasattr(user, 'deleted'):
+            user.deleted = True
+            updated_fields.append('deleted')
+        if updated_fields:
+            updated_fields.append('updated_at') if hasattr(user, 'updated_at') else None
+            user.save(update_fields=[f for f in updated_fields if f])
+
+        return Response({'status': 'approved'})
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser], url_path='reject')
+    def reject(self, request, pk=None):
+        """Admin rejects the delete request with an optional comment."""
+        delete_request = self.get_object()
+        if delete_request.status != AccountDeleteRequest.STATUS_PENDING:
+            return Response({'detail': 'Request already processed'}, status=status.HTTP_400_BAD_REQUEST)
+
+        delete_request.status = AccountDeleteRequest.STATUS_REJECTED
+        delete_request.admin_comment = request.data.get('admin_comment')
+        delete_request.processed_at = timezone.now()
+        delete_request.save(update_fields=['status', 'admin_comment', 'processed_at', 'updated_at'])
+
+        return Response({'status': 'rejected'})

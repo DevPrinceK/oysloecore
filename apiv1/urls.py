@@ -6,7 +6,7 @@ from .viewsets import (
     FeatureViewSet, ProductFeatureViewSet, ReviewViewSet,
     ChatRoomViewSet, MessageViewSet, FeedbackViewSet,
     SubscriptionViewSet, UserSubscriptionViewSet, PaymentViewSet,
-    PaystackPaymentViewSet,
+    PaystackPaymentViewSet, AccountDeleteRequestViewSet,
 )
 
 urlpatterns = [
@@ -60,6 +60,7 @@ router.register('subscriptions', SubscriptionViewSet, basename='subscription')
 router.register('user-subscriptions', UserSubscriptionViewSet, basename='user-subscription')
 router.register('payments', PaymentViewSet, basename='payment')
 router.register('paystack', PaystackPaymentViewSet, basename='paystack')
+router.register('account-delete-requests', AccountDeleteRequestViewSet, basename='account-delete-request')
 
 urlpatterns += [
     path('', include(router.urls)),

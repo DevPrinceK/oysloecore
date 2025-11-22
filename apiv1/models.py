@@ -314,3 +314,31 @@ class Payment(TimeStampedModel):
 
     def __str__(self):
         return f"{self.user.email} - {self.provider.upper()} {self.reference} ({self.status})"
+
+
+class AccountDeleteRequest(TimeStampedModel):
+    """Stores user account deletion requests with reasons and approval status."""
+
+    STATUS_PENDING = 'PENDING'
+    STATUS_APPROVED = 'APPROVED'
+    STATUS_REJECTED = 'REJECTED'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='delete_requests')
+    reason = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    admin_comment = models.TextField(blank=True, null=True)
+    processed_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def __str__(self):
+        return f"Delete request for {self.user.email} - {self.status}"

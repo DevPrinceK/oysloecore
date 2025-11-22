@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
 	ChatRoom, Message, Product, ProductImage, Category, SubCategory, Feature, ProductFeature, Review,
-	Coupon, CouponRedemption, Location, Feedback, Subscription, UserSubscription
+	Coupon, CouponRedemption, Location, Feedback, Subscription, UserSubscription, Payment, AccountDeleteRequest
 )
 
 # title and site header
@@ -131,4 +131,20 @@ class UserSubscriptionAdmin(admin.ModelAdmin):
 	list_display = ('id', 'user', 'subscription', 'start_date', 'end_date', 'is_active', 'created_at')
 	search_fields = ('user__email', 'user__name', 'subscription__name')
 	list_filter = ('is_active', 'subscription', 'created_at')
+	ordering = ('-created_at',)
+
+
+@admin.register(Payment)
+class PaymentAdmin(admin.ModelAdmin):
+	list_display = ('id', 'user', 'subscription', 'amount', 'currency', 'provider', 'status', 'created_at')
+	search_fields = ('user__email', 'user__name', 'subscription__name', 'reference')
+	list_filter = ('provider', 'status', 'created_at')
+	ordering = ('-created_at',)
+
+
+@admin.register(AccountDeleteRequest)
+class AccountDeleteRequestAdmin(admin.ModelAdmin):
+	list_display = ('id', 'user', 'status', 'created_at', 'processed_at')
+	search_fields = ('user__email', 'user__name', 'reason')
+	list_filter = ('status', 'created_at')
 	ordering = ('-created_at',)
