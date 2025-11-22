@@ -118,7 +118,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='related')
     def related(self, request):
         category_id = request.query_params.get('category_id')
-        qs = Product.objects.filter(category__id=category_id).order_by('?')[:50] if category_id else Product.objects.none()
+        qs = Product.objects.filter(category__id=category_id, status=ProductStatus.ACTIVE.value).order_by('?')[:50] if category_id else Product.objects.none()
         return Response(self.get_serializer(qs, many=True).data)
     
     @action(detail=True, methods=['post'], url_path='mark-as-taken')
@@ -197,7 +197,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         product.status = new_status
         product.save(update_fields=['status', 'updated_at'])
         # generate product approval alert if possible
-        if new_status in [ProductStatus.VERIFIED.value, ProductStatus.ACTIVE.value]:
+        if new_status in ["VERIFIED", ProductStatus.ACTIVE.value]:
             owner = None
             # Try common owner attribute names
             for attr in ['owner', 'user', 'vendor', 'seller', 'created_by']:

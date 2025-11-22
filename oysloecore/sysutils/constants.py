@@ -17,7 +17,6 @@ class ProductType(Enum):
 
 class ProductStatus(Enum):
     '''Defines the product status allowed in the system'''
-    VERIFIED = 'VERIFIED'
     ACTIVE = 'ACTIVE'
     SUSPENDED = 'SUSPENDED'
     DRAFT = 'DRAFT'
