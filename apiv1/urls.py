@@ -7,6 +7,7 @@ from .viewsets import (
     ChatRoomViewSet, MessageViewSet, FeedbackViewSet,
     SubscriptionViewSet, UserSubscriptionViewSet, PaymentViewSet,
     PaystackPaymentViewSet, AccountDeleteRequestViewSet,
+    PrivacyPolicyViewSet, TermsAndConditionsViewSet,
 )
 
 urlpatterns = [
@@ -61,6 +62,8 @@ router.register('user-subscriptions', UserSubscriptionViewSet, basename='user-su
 router.register('payments', PaymentViewSet, basename='payment')
 router.register('paystack', PaystackPaymentViewSet, basename='paystack')
 router.register('account-delete-requests', AccountDeleteRequestViewSet, basename='account-delete-request')
+router.register('privacy-policies', PrivacyPolicyViewSet, basename='privacy-policy')
+router.register('terms-and-conditions', TermsAndConditionsViewSet, basename='terms-and-conditions')
 
 urlpatterns += [
     path('', include(router.urls)),

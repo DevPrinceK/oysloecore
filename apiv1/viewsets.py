@@ -8,6 +8,7 @@ from apiv1.models import (
     Feature, ProductFeature, Review, ChatRoom, Message,
     Coupon, CouponRedemption, Feedback, Subscription,
     UserSubscription, Payment, AccountDeleteRequest,
+    PrivacyPolicy, TermsAndConditions,
 )
 from accounts.models import Location
 from apiv1.serializers import (
@@ -17,6 +18,7 @@ from apiv1.serializers import (
     LocationSerializer, CreateReviewSerializer, AlertSerializer, MarkAsTakenSerializer,
     FeedbackSerializer, SubscriptionSerializer, UserSubscriptionSerializer,
     PaymentSerializer, AccountDeleteRequestSerializer,
+    PrivacyPolicySerializer, TermsAndConditionsSerializer,
 )
 from django.db import transaction
 from django.utils import timezone
@@ -688,3 +690,49 @@ class AccountDeleteRequestViewSet(viewsets.ModelViewSet):
         delete_request.save(update_fields=['status', 'admin_comment', 'processed_at', 'updated_at'])
 
         return Response({'status': 'rejected'})
+
+
+class PrivacyPolicyViewSet(viewsets.ModelViewSet):
+    """Admin CRUD for privacy policies; public read access to latest version."""
+
+    queryset = PrivacyPolicy.objects.all().order_by('-date', '-created_at')
+    serializer_class = PrivacyPolicySerializer
+    permission_classes = [permissions.IsAdminUser, permissions.IsAuthenticated]
+    filterset_fields = ['date']
+    ordering_fields = ['date', 'created_at']
+
+    def get_permissions(self):
+        # Allow unauthenticated users to list/retrieve policies
+        if self.action in ['list', 'retrieve', 'latest']:
+            return [AllowAny()]
+        return [permission() for permission in self.permission_classes]
+
+    @action(detail=False, methods=['get'], url_path='latest', permission_classes=[AllowAny])
+    def latest(self, request):
+        obj = PrivacyPolicy.objects.all().order_by('-date', '-created_at').first()
+        if not obj:
+            return Response({'detail': 'No privacy policy found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(self.get_serializer(obj).data)
+
+
+class TermsAndConditionsViewSet(viewsets.ModelViewSet):
+    """Admin CRUD for T&C; public read access to latest version."""
+
+    queryset = TermsAndConditions.objects.all().order_by('-date', '-created_at')
+    serializer_class = TermsAndConditionsSerializer
+    permission_classes = [permissions.IsAdminUser, permissions.IsAuthenticated]
+    filterset_fields = ['date']
+    ordering_fields = ['date', 'created_at']
+
+    def get_permissions(self):
+        # Allow unauthenticated users to list/retrieve T&C
+        if self.action in ['list', 'retrieve', 'latest']:
+            return [AllowAny()]
+        return [permission() for permission in self.permission_classes]
+
+    @action(detail=False, methods=['get'], url_path='latest', permission_classes=[AllowAny])
+    def latest(self, request):
+        obj = TermsAndConditions.objects.all().order_by('-date', '-created_at').first()
+        if not obj:
+            return Response({'detail': 'No terms and conditions found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(self.get_serializer(obj).data)

@@ -19,6 +19,8 @@ from apiv1.models import (
     UserSubscription,
     Payment,
     AccountDeleteRequest,
+    PrivacyPolicy,
+    TermsAndConditions,
 )
 from accounts.models import Location
 from notifications.models import Alert
@@ -327,6 +329,20 @@ class AccountDeleteRequestSerializer(serializers.ModelSerializer):
         model = AccountDeleteRequest
         fields = ['id', 'reason', 'status', 'admin_comment', 'created_at', 'processed_at']
         read_only_fields = ['id', 'status', 'admin_comment', 'created_at', 'processed_at']
+
+
+class PrivacyPolicySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PrivacyPolicy
+        fields = ['id', 'title', 'date', 'body', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class TermsAndConditionsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TermsAndConditions
+        fields = ['id', 'title', 'date', 'body', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
 
 
