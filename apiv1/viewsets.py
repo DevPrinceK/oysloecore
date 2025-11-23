@@ -57,6 +57,33 @@ class ProductViewSet(viewsets.ModelViewSet):
     ordering_fields = ['created_at', 'price']
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
 
+    def get_queryset(self):
+        """Control visibility of products based on user role/ownership.
+
+        - Admins see all products.
+        - Product owners see all their own products (any status) plus ACTIVE products from others.
+        - Other authenticated users and anonymous users see only ACTIVE products.
+        """
+        base_qs = Product.objects.all().order_by('-created_at')
+
+        # During schema generation, avoid DB hits
+        if getattr(self, 'swagger_fake_view', False):  # pragma: no cover
+            return base_qs.none()
+
+        user = getattr(self.request, 'user', None)
+
+        # Anonymous or unauthenticated: only ACTIVE products
+        if not user or not getattr(user, 'is_authenticated', False):
+            return base_qs.filter(status=ProductStatus.ACTIVE.value)
+
+        # Admins: see everything
+        if getattr(user, 'is_staff', False):
+            return base_qs
+
+        # Owners: all their products + ACTIVE products from others
+        from django.db.models import Q
+        return base_qs.filter(Q(owner=user) | Q(status=ProductStatus.ACTIVE.value))
+
     def get_permissions(self):
         """Allow unauthenticated read-only access but require auth for writes.
 
