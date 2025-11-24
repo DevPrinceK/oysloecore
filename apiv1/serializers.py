@@ -325,10 +325,11 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
 
 
 class AccountDeleteRequestSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
     class Meta:
         model = AccountDeleteRequest
-        fields = ['id', 'reason', 'status', 'admin_comment', 'created_at', 'processed_at']
-        read_only_fields = ['id', 'status', 'admin_comment', 'created_at', 'processed_at']
+        fields = ['id', 'reason', 'status', 'user', 'admin_comment', 'created_at', 'processed_at']
+        read_only_fields = ['id', 'status', 'user', 'admin_comment', 'created_at', 'processed_at']
 
 
 class PrivacyPolicySerializer(serializers.ModelSerializer):
