@@ -393,6 +393,12 @@ class LocationViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'region']
     ordering_fields = ['name', 'created_at']
 
+    def get_permissions(self):
+        """Allow unauthenticated users to list/retrieve locations; restrict writes."""
+        if self.action in ['list', 'retrieve']:
+            return [AllowAny()]
+        return [permission() for permission in self.permission_classes]
+
 
 class FeedbackViewSet(viewsets.ModelViewSet):
     """Users can submit feedback; admins can browse all feedback."""
