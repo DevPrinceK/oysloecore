@@ -9,6 +9,7 @@ from apiv1.models import (
     Coupon, CouponRedemption, Feedback, Subscription,
     UserSubscription, Payment, AccountDeleteRequest,
     PrivacyPolicy, TermsAndConditions,
+    Favourite, ProductLike, ProductReport,
 )
 from accounts.models import Location
 from apiv1.serializers import (
@@ -146,9 +147,115 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='related')
     def related(self, request):
-        category_id = request.query_params.get('category_id')
-        qs = Product.objects.filter(category__id=category_id, status=ProductStatus.ACTIVE.value).order_by('?')[:50] if category_id else Product.objects.none()
+        """Return products related to a given product.
+
+        Expects a ``product_id`` query parameter for the *source* product.
+        Uses that product's category, subcategory, features and name to
+        find similar ACTIVE products.
+        """
+        from django.db.models import Q
+
+        product_id = request.query_params.get('product_id')
+        if not product_id:
+            return Response({'detail': 'product_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            base_product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            return Response({'detail': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Start from ACTIVE products only and exclude the base product itself
+        qs = Product.objects.filter(status=ProductStatus.ACTIVE.value).exclude(id=base_product.id)
+
+        # Category from the base product
+        if getattr(base_product, 'category_id', None):
+            qs = qs.filter(category_id=base_product.category_id)
+
+        # Subcategory via features of the base product
+        subcategory_ids = (
+            ProductFeature.objects
+            .filter(product=base_product, feature__subcategory__isnull=False)
+            .values_list('feature__subcategory_id', flat=True)
+            .distinct()
+        )
+        if subcategory_ids:
+            qs = qs.filter(product_features__feature__subcategory_id__in=list(subcategory_ids))
+
+        # Shared feature values
+        feature_ids = (
+            ProductFeature.objects
+            .filter(product=base_product)
+            .values_list('feature_id', flat=True)
+        )
+        if feature_ids:
+            qs = qs.filter(product_features__feature_id__in=list(feature_ids))
+
+        # Similar name/description to the base product's name
+        name = (base_product.name or '').strip()
+        if name:
+            qs = qs.filter(Q(name__icontains=name) | Q(description__icontains=name))
+
+        qs = qs.distinct().order_by('-created_at')[:50]
         return Response(self.get_serializer(qs, many=True).data)
+
+    @action(detail=True, methods=['post'], url_path='favourite')
+    def favourite(self, request, pk=None):
+        """Toggle favourite status of a product for the current user."""
+        if not request.user.is_authenticated:
+            return Response({'detail': 'Authentication credentials were not provided.'}, status=status.HTTP_401_UNAUTHORIZED)
+        product = self.get_object()
+        fav, created = Favourite.objects.get_or_create(user=request.user, product=product)
+        if not created:
+            fav.delete()
+            state = 'removed'
+        else:
+            state = 'added'
+        return Response({'status': state})
+
+    @action(detail=False, methods=['get'], url_path='favourites')
+    def favourites(self, request):
+        """Return list of the current user's favourite products."""
+        if not request.user.is_authenticated:
+            return Response({'detail': 'Authentication credentials were not provided.'}, status=status.HTTP_401_UNAUTHORIZED)
+        qs = Product.objects.filter(favourited_by__user=request.user).order_by('-created_at')
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='like')
+    def like(self, request, pk=None):
+        """Toggle like status of a product for the current user."""
+        if not request.user.is_authenticated:
+            return Response({'detail': 'Authentication credentials were not provided.'}, status=status.HTTP_401_UNAUTHORIZED)
+        product = self.get_object()
+        like, created = ProductLike.objects.get_or_create(user=request.user, product=product)
+        if not created:
+            like.delete()
+            state = 'removed'
+        else:
+            state = 'added'
+        return Response({'status': state})
+
+    @action(detail=True, methods=['post'], url_path='report')
+    def report(self, request, pk=None):
+        """Report a product/ad. Normal users can create reports; admins can review via a separate viewset if needed."""
+        if not request.user.is_authenticated:
+            return Response({'detail': 'Authentication credentials were not provided.'}, status=status.HTTP_401_UNAUTHORIZED)
+        product = self.get_object()
+        reason = request.data.get('reason') or ProductReport.REASON_OTHER
+        message = request.data.get('message')
+        if reason not in dict(ProductReport.REASON_CHOICES):
+            return Response({'detail': 'Invalid reason'}, status=status.HTTP_400_BAD_REQUEST)
+        report, created = ProductReport.objects.get_or_create(
+            product=product,
+            user=request.user,
+            defaults={'reason': reason, 'message': message},
+        )
+        if not created:
+            # Update existing report
+            report.reason = reason
+            report.message = message
+            report.save(update_fields=['reason', 'message', 'updated_at'])
+        return Response({'status': 'reported'})
     
     @action(detail=True, methods=['post'], url_path='mark-as-taken')
     @extend_schema(
@@ -421,13 +528,23 @@ class FeedbackViewSet(viewsets.ModelViewSet):
 
 
 class SubscriptionViewSet(viewsets.ModelViewSet):
-    """Admin-only CRUD for subscription packages."""
+    """CRUD for subscription packages.
+
+    Admins can create/update/delete; all users (including anonymous) can list/retrieve
+    so they can see available plans to subscribe to.
+    """
     queryset = Subscription.objects.all().order_by('-created_at')
     serializer_class = SubscriptionSerializer
     permission_classes = [permissions.IsAdminUser, permissions.IsAuthenticated]
     filterset_fields = ['is_active', 'tier', 'price', 'duration_days', 'max_products']
     search_fields = ['name', 'tier', 'description', 'features']
     ordering_fields = ['created_at', 'price', 'duration_days', 'max_products']
+
+    def get_permissions(self):
+        # Allow unauthenticated users to list/retrieve subscriptions
+        if self.action in ['list', 'retrieve']:
+            return [AllowAny()]
+        return [permission() for permission in self.permission_classes]
 
 
 class UserSubscriptionViewSet(viewsets.ModelViewSet):
@@ -769,3 +886,18 @@ class TermsAndConditionsViewSet(viewsets.ModelViewSet):
         if not obj:
             return Response({'detail': 'No terms and conditions found'}, status=status.HTTP_404_NOT_FOUND)
         return Response(self.get_serializer(obj).data)
+
+
+class ProductReportViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only viewset for product reports. Admins can see all reports, users only their own."""
+
+    queryset = ProductReport.objects.all().order_by('-created_at')
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):  # pragma: no cover
+            return ProductReport.objects.none()
+        user = self.request.user
+        if user.is_staff:
+            return ProductReport.objects.select_related('product', 'user').order_by('-created_at')
+        return ProductReport.objects.select_related('product').filter(user=user).order_by('-created_at')

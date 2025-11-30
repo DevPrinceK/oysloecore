@@ -103,13 +103,13 @@ class Feature(TimeStampedModel):
         return f"{self.subcategory.name} - {self.name}"
     
 
-# class FeatureValue(TimeStampedModel):
-#     '''Model to store possible values for a feature'''
-#     feature = models.ForeignKey(Feature, on_delete=models.CASCADE, related_name='values')
-#     value = models.CharField(max_length=255)
+class PosibleFeatureValue(TimeStampedModel):
+    '''Model to store possible values for a feature'''
+    feature = models.ForeignKey(Feature, on_delete=models.CASCADE, related_name='values')
+    value = models.CharField(max_length=255)
 
-#     def __str__(self):
-#         return f"{self.feature.name} - {self.value}"
+    def __str__(self):
+        return f"{self.feature.name} - {self.value}"
 
     
 class ProductFeature(TimeStampedModel):
@@ -145,6 +145,55 @@ class Feedback(TimeStampedModel):
 
     def __str__(self):
         return f"{self.user.name} - {self.rating} Feedback"
+
+
+class Favourite(TimeStampedModel):
+    """Tracks products favourited by users."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='favourites')
+    product = models.ForeignKey('Product', on_delete=models.CASCADE, related_name='favourited_by')
+
+    class Meta:
+        unique_together = ('user', 'product')
+
+    def __str__(self):
+        return f"{self.user.email} ❤ {self.product.pid}"
+
+
+class ProductLike(TimeStampedModel):
+    """Tracks likes on products by users."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='product_likes')
+    product = models.ForeignKey('Product', on_delete=models.CASCADE, related_name='liked_by')
+
+    class Meta:
+        unique_together = ('user', 'product')
+
+    def __str__(self):
+        return f"{self.user.email} 👍 {self.product.pid}"
+
+
+class ProductReport(TimeStampedModel):
+    """Reports submitted by users against products/ads."""
+    REASON_SPAM = 'SPAM'
+    REASON_INAPPROPRIATE = 'INAPPROPRIATE'
+    REASON_SCAM = 'SCAM'
+    REASON_OTHER = 'OTHER'
+    REASON_CHOICES = [
+        (REASON_SPAM, 'Spam or misleading'),
+        (REASON_INAPPROPRIATE, 'Inappropriate content'),
+        (REASON_SCAM, 'Scam or fraud'),
+        (REASON_OTHER, 'Other'),
+    ]
+
+    product = models.ForeignKey('Product', on_delete=models.CASCADE, related_name='reports')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='product_reports')
+    reason = models.CharField(max_length=30, choices=REASON_CHOICES, default=REASON_OTHER)
+    message = models.TextField(blank=True, null=True)
+
+    class Meta:
+        unique_together = ('product', 'user')
+
+    def __str__(self):
+        return f"Report on {self.product.pid} by {self.user.email}"
 
 
 class Location(TimeStampedModel):

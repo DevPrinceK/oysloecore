@@ -56,6 +56,8 @@ from .viewsets import LocationViewSet
 router.register('locations', LocationViewSet, basename='location')
 from .viewsets import AlertViewSet
 router.register('alerts', AlertViewSet, basename='alert')
+from .viewsets import ProductReportViewSet
+router.register('product-reports', ProductReportViewSet, basename='product-report')
 router.register('feedback', FeedbackViewSet, basename='feedback')
 router.register('subscriptions', SubscriptionViewSet, basename='subscription')
 router.register('user-subscriptions', UserSubscriptionViewSet, basename='user-subscription')

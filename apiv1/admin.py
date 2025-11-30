@@ -1,7 +1,8 @@
 from django.contrib import admin
 from .models import (
 	ChatRoom, Message, Product, ProductImage, Category, SubCategory, Feature, ProductFeature, Review,
-	Coupon, CouponRedemption, Location, Feedback, Subscription, UserSubscription, Payment, AccountDeleteRequest
+	Coupon, CouponRedemption, Location, Feedback, Subscription, UserSubscription, Payment, AccountDeleteRequest,
+	Favourite, ProductLike, ProductReport,
 )
 
 # title and site header
@@ -147,4 +148,28 @@ class AccountDeleteRequestAdmin(admin.ModelAdmin):
 	list_display = ('id', 'user', 'status', 'created_at', 'processed_at')
 	search_fields = ('user__email', 'user__name', 'reason')
 	list_filter = ('status', 'created_at')
+	ordering = ('-created_at',)
+
+
+@admin.register(Favourite)
+class FavouriteAdmin(admin.ModelAdmin):
+	list_display = ('id', 'user', 'product', 'created_at')
+	search_fields = ('user__email', 'user__name', 'product__name', 'product__pid')
+	list_filter = ('created_at',)
+	ordering = ('-created_at',)
+
+
+@admin.register(ProductLike)
+class ProductLikeAdmin(admin.ModelAdmin):
+	list_display = ('id', 'user', 'product', 'created_at')
+	search_fields = ('user__email', 'user__name', 'product__name', 'product__pid')
+	list_filter = ('created_at',)
+	ordering = ('-created_at',)
+
+
+@admin.register(ProductReport)
+class ProductReportAdmin(admin.ModelAdmin):
+	list_display = ('id', 'product', 'user', 'reason', 'created_at')
+	search_fields = ('product__name', 'product__pid', 'user__email', 'user__name', 'message')
+	list_filter = ('reason', 'created_at')
 	ordering = ('-created_at',)

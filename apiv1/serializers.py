@@ -21,6 +21,9 @@ from apiv1.models import (
     AccountDeleteRequest,
     PrivacyPolicy,
     TermsAndConditions,
+    Favourite,
+    ProductLike,
+    ProductReport,
 )
 from accounts.models import Location
 from notifications.models import Alert
@@ -171,10 +174,26 @@ class ProductSerializer(serializers.ModelSerializer):
     product_features = ProductFeatureSerializer(many=True, read_only=True)
     location = ProductLocationSerializer(read_only=True)
     owner = ProductOwnerSerializer(read_only=True)
+    favourited_by_user = serializers.SerializerMethodField(read_only=True)
+    liked_by_user = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Product
         fields = "__all__"
+
+    def get_favourited_by_user(self, obj) -> bool:
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user or not getattr(user, 'is_authenticated', False):
+            return False
+        return obj.favourited_by.filter(user=user).exists()
+
+    def get_liked_by_user(self, obj) -> bool:
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user or not getattr(user, 'is_authenticated', False):
+            return False
+        return obj.liked_by.filter(user=user).exists()
 
 
 class FeedbackSerializer(serializers.ModelSerializer):
