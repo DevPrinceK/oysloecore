@@ -5,7 +5,7 @@ from rest_framework.response import Response
 
 from apiv1.models import (
     Category, SubCategory, Product, ProductImage,
-    Feature, ProductFeature, Review, ChatRoom, Message,
+    Feature, PosibleFeatureValue, ProductFeature, Review, ChatRoom, Message,
     Coupon, CouponRedemption, Feedback, Subscription,
     UserSubscription, Payment, AccountDeleteRequest,
     PrivacyPolicy, TermsAndConditions,
@@ -14,7 +14,7 @@ from apiv1.models import (
 from accounts.models import Location
 from apiv1.serializers import (
     CategorySerializer, SubCategorySerializer, ProductSerializer, ProductImageSerializer,
-    FeatureSerializer, ProductFeatureSerializer, ReviewSerializer,
+    FeatureSerializer, PosibleFeatureValueSerializer, ProductFeatureSerializer, ProductFeatureCreateSerializer, ReviewSerializer,
     ChatRoomSerializer, MessageSerializer, AdminChangeProductStatusSerializer,
     LocationSerializer, CreateReviewSerializer, AlertSerializer, MarkAsTakenSerializer,
     FeedbackSerializer, SubscriptionSerializer, UserSubscriptionSerializer,
@@ -366,12 +366,45 @@ class FeatureViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
     filterset_fields = ['subcategory']
 
+    @action(detail=True, methods=['get'], url_path='possible-values')
+    def possible_values(self, request, pk=None):
+        """Return possible values for this feature.
+
+        This is useful when building a form: once a feature is selected,
+        the frontend can call this endpoint to get the list of allowed
+        values to present as options.
+        """
+        feature = self.get_object()
+        values_qs = feature.values.all().order_by('value')
+        serializer = PosibleFeatureValueSerializer(values_qs, many=True)
+        return Response(serializer.data)
+
 
 class ProductFeatureViewSet(viewsets.ModelViewSet):
     queryset = ProductFeature.objects.all()
     serializer_class = ProductFeatureSerializer
     permission_classes = [AllowAny]
     filterset_fields = ['product', 'feature']
+
+    def get_serializer_class(self):
+        # Use write-oriented serializer for creates/updates to enforce
+        # value validation against PosibleFeatureValue.
+        if self.action in ['create', 'update', 'partial_update']:
+            return ProductFeatureCreateSerializer
+        return super().get_serializer_class()
+
+
+class PosibleFeatureValueViewSet(viewsets.ModelViewSet):
+    """CRUD for possible values of a feature.
+
+    Typically managed by admins; can be read by clients to know the
+    allowed values for a given feature.
+    """
+
+    queryset = PosibleFeatureValue.objects.all().order_by('feature__id', 'value')
+    serializer_class = PosibleFeatureValueSerializer
+    permission_classes = [AllowAny]
+    filterset_fields = ['feature']
 
 
 class ReviewViewSet(viewsets.ModelViewSet):

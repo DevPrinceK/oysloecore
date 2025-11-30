@@ -11,6 +11,7 @@ from apiv1.models import (
     Review,
     SubCategory,
     Feature,
+    PosibleFeatureValue,
     ProductFeature,
     Coupon,
     CouponRedemption,
@@ -136,18 +137,55 @@ class ProductImageSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at"]
 
 
+class PosibleFeatureValueSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PosibleFeatureValue
+        fields = ["id", "feature", "value", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
 class FeatureSerializer(serializers.ModelSerializer):
+    """Serializer for features, optionally including their possible values."""
+
+    values = PosibleFeatureValueSerializer(many=True, read_only=True)
+
     class Meta:
         model = Feature
         fields = "__all__"
 
 
 class ProductFeatureSerializer(serializers.ModelSerializer):
+    """Read serializer for product features, expanding the feature details."""
+
     feature = FeatureSerializer(read_only=True)
 
     class Meta:
         model = ProductFeature
+        fields = ["id", "product", "feature", "value", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class ProductFeatureCreateSerializer(serializers.ModelSerializer):
+    """Write serializer for creating/updating product features.
+
+    Validates that the provided value is one of the possible values
+    defined for the selected feature.
+    """
+
+    class Meta:
+        model = ProductFeature
         fields = ["id", "product", "feature", "value"]
+        read_only_fields = ["id"]
+
+    def validate(self, attrs):
+        feature = attrs.get("feature")
+        value = (attrs.get("value") or "").strip()
+        if feature and value:
+            if not PosibleFeatureValue.objects.filter(feature=feature, value=value).exists():
+                raise serializers.ValidationError(
+                    {"value": "Value must be one of the possible feature values for this feature."}
+                )
+        return attrs
 
 
 class LocationSerializer(serializers.ModelSerializer):

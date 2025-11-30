@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from . import views
 from .viewsets import (
     CategoryViewSet, SubCategoryViewSet, ProductViewSet, ProductImageViewSet,
-    FeatureViewSet, ProductFeatureViewSet, ReviewViewSet,
+    FeatureViewSet, ProductFeatureViewSet, PosibleFeatureValueViewSet, ReviewViewSet,
     ChatRoomViewSet, MessageViewSet, FeedbackViewSet,
     SubscriptionViewSet, UserSubscriptionViewSet, PaymentViewSet,
     PaystackPaymentViewSet, AccountDeleteRequestViewSet,
@@ -47,6 +47,7 @@ router.register('products', ProductViewSet, basename='product')
 router.register('product-images', ProductImageViewSet, basename='productimage')
 router.register('features', FeatureViewSet, basename='feature')
 router.register('product-features', ProductFeatureViewSet, basename='productfeature')
+router.register('possible-feature-values', PosibleFeatureValueViewSet, basename='possiblefeaturevalue')
 router.register('reviews', ReviewViewSet, basename='review')
 router.register('chatrooms', ChatRoomViewSet, basename='chatroom')
 router.register('messages', MessageViewSet, basename='message')
