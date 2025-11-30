@@ -145,6 +145,25 @@ class ProductViewSet(viewsets.ModelViewSet):
             return error_response
         return super().create(request, *args, **kwargs)
 
+    def perform_create(self, serializer):
+        """Attach an owner to the product based on the requester.
+
+        - Non-admins: the authenticated user is always the owner.
+        - Admins: if an explicit owner is provided in the validated data,
+          use that; otherwise fall back to the admin user.
+        """
+        request_user = self.request.user
+        owner = None
+
+        # If staff, allow specifying a different owner via incoming data
+        if getattr(request_user, 'is_staff', False):
+            owner = serializer.validated_data.get('owner') or request_user
+        else:
+            # For non-staff, force owner to be the current user
+            owner = request_user
+
+        serializer.save(owner=owner)
+
     @action(detail=False, methods=['get'], url_path='related')
     def related(self, request):
         """Return products related to a given product.
