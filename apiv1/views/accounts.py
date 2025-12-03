@@ -20,7 +20,7 @@ from rest_framework.views import APIView
 from accounts.models import OTP, User
 from apiv1.serializers import ChangePasswordSerializer, LoginSerializer, RegisterUserSerializer, ResetPasswordSerializer, UserSerializer
 from notifications.models import Alert
-from apiv1.serializers import AdminCategoryWithSubcategoriesSerializer
+from apiv1.serializers import AdminCategoryWithSubcategoriesSerializer, AdminVerifyIdSerializer
 from django.db.models import Q
 
 class LoginAPI(APIView):
@@ -428,6 +428,33 @@ class ChangePasswordAPIView(APIView):
             user.save()
             return Response({'status': 'success'}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class AdminVerifyUserIdAPIView(APIView):
+    """Admin-only endpoint to verify or unverify a user's ID card."""
+    permission_classes = (permissions.IsAdminUser,)
+
+    @extend_schema(
+        request=AdminVerifyIdSerializer,
+        responses={200: UserSerializer, 400: GenericMessageSerializer},
+        operation_id='admin_verify_user_id'
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = AdminVerifyIdSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        culprit_id = serializer.validated_data['id']
+        id_verified = serializer.validated_data['id_verified']
+
+        culprit = User.objects.filter(id=culprit_id, deleted=False).first()
+        if not culprit:
+            return Response({'message': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        culprit.id_verified = id_verified
+        culprit.save(update_fields=['id_verified', 'updated_at'])
+
+        return Response(UserSerializer(culprit).data, status=status.HTTP_200_OK)
 
 
 class UserPreferenceAPIView(APIView):

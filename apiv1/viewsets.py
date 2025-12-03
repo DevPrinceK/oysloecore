@@ -19,7 +19,7 @@ from apiv1.serializers import (
     LocationSerializer, CreateReviewSerializer, AlertSerializer, MarkAsTakenSerializer,
     FeedbackSerializer, SubscriptionSerializer, UserSubscriptionSerializer,
     PaymentSerializer, AccountDeleteRequestSerializer,
-    PrivacyPolicySerializer, TermsAndConditionsSerializer,
+    PrivacyPolicySerializer, TermsAndConditionsSerializer, ProductReportSerializer,
 )
 from django.db import transaction
 from django.utils import timezone
@@ -1048,6 +1048,7 @@ class ProductReportViewSet(viewsets.ReadOnlyModelViewSet):
     """Read-only viewset for product reports. Admins can see all reports, users only their own."""
 
     queryset = ProductReport.objects.all().order_by('-created_at')
+    serializer_class = ProductReportSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):

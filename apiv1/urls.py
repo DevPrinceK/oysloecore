@@ -28,6 +28,7 @@ urlpatterns += [
     path('userpreferences/', views.UserPreferenceAPIView.as_view(), name='userpreferences'),
     path('redeem-points/', views.RedeemReferralAPIView.as_view(), name='redeem_points'),
     path('admin/verifyuser/', views.AdminVerifyUserAPIView.as_view(), name='admin_verify_user'),
+    path('admin/verify-user-id/', views.AdminVerifyUserIdAPIView.as_view(), name='admin_verify_user_id'),
     path('admin/users/', views.AdminListUsersAPIView.as_view(), name='admin_users'),
     path('admin/categories/', views.AdminListCategoriesAPIView.as_view(), name='admin_categories'),
 ]

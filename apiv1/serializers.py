@@ -39,6 +39,12 @@ class UserSerializer(serializers.ModelSerializer):
         exclude = ["password", "groups", "user_permissions"]
 
 
+class AdminVerifyIdSerializer(serializers.Serializer):
+    """Serializer used by admins to toggle a user's ID verification flag."""
+    id = serializers.IntegerField()
+    id_verified = serializers.BooleanField()
+
+
 class CreateUserSerializer(serializers.ModelSerializer):
     """Serializer for creating a user from admin panel"""
 
@@ -241,6 +247,16 @@ class FeedbackSerializer(serializers.ModelSerializer):
         model = Feedback
         fields = ['id', 'user', 'rating', 'message', 'created_at']
         read_only_fields = ['id', 'user', 'created_at']
+
+
+class ProductReportSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+    product = ProductSerializer(read_only=True)
+
+    class Meta:
+        model = ProductReport
+        fields = ['id', 'product', 'user', 'reason', 'message', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
 
 class CategorySerializer(serializers.ModelSerializer):

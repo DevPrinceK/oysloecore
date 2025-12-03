@@ -49,6 +49,7 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
     address = models.CharField(max_length=500, blank=True, null=True)
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
     admin_verified = models.BooleanField(default=False)
+    id_verified = models.BooleanField(default=False)
 
     deleted = models.BooleanField(default=False)  # Soft delete
 
