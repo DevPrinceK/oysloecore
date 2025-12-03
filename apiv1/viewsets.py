@@ -385,18 +385,47 @@ class FeatureViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
     filterset_fields = ['subcategory']
 
-    @action(detail=True, methods=['get'], url_path='possible-values')
+    @action(detail=True, methods=['get', 'post', 'patch'], url_path='possible-values')
     def possible_values(self, request, pk=None):
-        """Return possible values for this feature.
+        """List, create or update possible values for this feature.
 
-        This is useful when building a form: once a feature is selected,
-        the frontend can call this endpoint to get the list of allowed
-        values to present as options.
+        - GET: list all possible values for the feature.
+        - POST: create a new possible value for the feature.
+        - PATCH: update an existing possible value (requires ``id`` in body).
         """
         feature = self.get_object()
-        values_qs = feature.values.all().order_by('value')
-        serializer = PosibleFeatureValueSerializer(values_qs, many=True)
-        return Response(serializer.data)
+
+        if request.method == 'GET':
+            values_qs = feature.values.all().order_by('value')
+            serializer = PosibleFeatureValueSerializer(values_qs, many=True)
+            return Response(serializer.data)
+
+        if request.method == 'POST':
+            payload = request.data.copy()
+            # Ensure the value is always tied to this feature
+            payload['feature'] = feature.id
+            serializer = PosibleFeatureValueSerializer(data=payload)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        if request.method == 'PATCH':
+            value_id = request.data.get('id')
+            if not value_id:
+                return Response({'detail': 'id is required for update'}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                value_obj = feature.values.get(id=value_id)
+            except PosibleFeatureValue.DoesNotExist:
+                return Response({'detail': 'Possible feature value not found for this feature'}, status=status.HTTP_404_NOT_FOUND)
+
+            serializer = PosibleFeatureValueSerializer(value_obj, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({'detail': 'Method not allowed'}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
 
 class ProductFeatureViewSet(viewsets.ModelViewSet):
