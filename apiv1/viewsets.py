@@ -27,6 +27,7 @@ from drf_spectacular.utils import extend_schema, OpenApiExample
 from oysloecore.sysutils.constants import ProductStatus
 from notifications.models import Alert
 from django.conf import settings
+from notifications import utils as notification_utils
 
 
 class IsAuthenticated(permissions.IsAuthenticated):
@@ -310,6 +311,17 @@ class ProductViewSet(viewsets.ModelViewSet):
                 body=f'Your product "{product.name}" has been marked as taken.',
                 kind='PRODUCT_TAKEN'
             )
+        except Exception:
+            pass
+        # optional SMS notification to owner
+        try:
+            owner_phone = getattr(owner, 'phone', None)
+            if owner_phone and hasattr(notification_utils, 'send_sms'):
+                message = (
+                    f"Your ad {product.name} is reported as taken. Please verify and update the status now! "
+                    "Be informed that you will face suspension if there's multiple report on this ad. Thank you"
+                )
+                notification_utils.send_sms(owner_phone, message)
         except Exception:
             pass
         return Response(ProductSerializer(product, context={'request': request}).data)
