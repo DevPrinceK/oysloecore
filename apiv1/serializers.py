@@ -290,11 +290,15 @@ class ChatRoomSerializer(serializers.ModelSerializer):
 class ReviewSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     product = ProductSerializer(read_only=True)
+    likes_count = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Review
-        fields = ['id', 'user', 'product', 'rating', 'comment', 'created_at']
-        read_only_fields = ['id', 'created_at']
+        fields = ['id', 'user', 'product', 'rating', 'comment', 'created_at', 'likes_count']
+        read_only_fields = ['id', 'created_at', 'likes_count']
+
+    def get_likes_count(self, obj) -> int:
+        return obj.likes.count()
 
 class CreateReviewSerializer(serializers.ModelSerializer):
     class Meta:

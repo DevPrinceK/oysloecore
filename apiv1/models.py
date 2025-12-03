@@ -131,6 +131,9 @@ class Review(TimeStampedModel):
     rating = models.IntegerField()
     comment = models.TextField(blank=True, null=True)
 
+    # Users who liked this review
+    likes = models.ManyToManyField(User, related_name='liked_reviews', blank=True)
+
     class Meta:
         unique_together = ('product', 'user')
 

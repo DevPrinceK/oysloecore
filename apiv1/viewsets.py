@@ -285,6 +285,12 @@ class ProductViewSet(viewsets.ModelViewSet):
         description='Mark a product as taken. Only the product owner can perform this action. Body must include the product id.'
     )
     def mark_as_taken(self, request, pk=None):
+        """Initiate mark-as-taken flow by notifying the owner.
+
+        This endpoint does NOT actually set ``is_taken``. It only creates
+        an in-app alert and sends an SMS to the owner so they can
+        confirm the change via the dedicated confirmation endpoint.
+        """
         product = self.get_object()
         serializer = MarkAsTakenSerializer(data=request.data)
         if not serializer.is_valid():
@@ -297,23 +303,22 @@ class ProductViewSet(viewsets.ModelViewSet):
         owner = getattr(product, 'owner', None)
         if owner is None:
             return Response({'detail': 'Product has no owner assigned'}, status=status.HTTP_400_BAD_REQUEST)
-        if request.user != owner and not request.user.is_staff:
-            return Response({'detail': 'You are not allowed to mark this product as taken'}, status=status.HTTP_403_FORBIDDEN)
-        if product.is_taken:
-            return Response({'detail': 'Product already marked as taken'}, status=status.HTTP_200_OK)
-        product.is_taken = True
-        product.save(update_fields=['is_taken', 'updated_at'])
-        # optional alert to owner
+
+        # Create an alert prompting the owner to confirm
         try:
             Alert.objects.create(
                 user=owner,
-                title='Product marked as taken',
-                body=f'Your product "{product.name}" has been marked as taken.',
+                title='Product reported as taken',
+                body=(
+                    f'Your ad "{product.name}" has been reported as taken. '
+                    'Please verify and confirm if this is correct.'
+                ),
                 kind='PRODUCT_TAKEN'
             )
         except Exception:
             pass
-        # optional SMS notification to owner
+
+        # SMS notification to owner
         try:
             owner_phone = getattr(owner, 'phone', None)
             if owner_phone and hasattr(notification_utils, 'send_sms'):
@@ -324,6 +329,46 @@ class ProductViewSet(viewsets.ModelViewSet):
                 notification_utils.send_sms(owner_phone, message)
         except Exception:
             pass
+
+        return Response({'detail': 'Notification sent to product owner for confirmation.'}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='confirm-mark-as-taken')
+    @extend_schema(
+        request=None,
+        responses={200: ProductSerializer, 400: None, 403: None},
+        operation_id='product_confirm_mark_as_taken',
+        description='Confirm that a product is taken. Only the product owner can perform this action.'
+    )
+    def confirm_mark_as_taken(self, request, pk=None):
+        """Confirmation endpoint that actually marks the product as taken.
+
+        Only the product owner is allowed to confirm. Once confirmed, the
+        product's ``is_taken`` flag is set to True.
+        """
+        product = self.get_object()
+        owner = getattr(product, 'owner', None)
+        if owner is None:
+            return Response({'detail': 'Product has no owner assigned'}, status=status.HTTP_400_BAD_REQUEST)
+        if request.user != owner:
+            return Response({'detail': 'Only the product owner can confirm this action'}, status=status.HTTP_403_FORBIDDEN)
+
+        if product.is_taken:
+            return Response({'detail': 'Product already marked as taken'}, status=status.HTTP_200_OK)
+
+        product.is_taken = True
+        product.save(update_fields=['is_taken', 'updated_at'])
+
+        # Create a confirmation alert to the owner
+        try:
+            Alert.objects.create(
+                user=owner,
+                title='Product taken confirmed',
+                body=f'You have confirmed that your product "{product.name}" is taken.',
+                kind='PRODUCT_TAKEN_CONFIRMED'
+            )
+        except Exception:
+            pass
+
         return Response(ProductSerializer(product, context={'request': request}).data)
 
 
@@ -489,6 +534,24 @@ class ReviewViewSet(viewsets.ModelViewSet):
         if not self.request.user.is_authenticated:
             return Response({'detail': 'Authentication credentials were not provided.'}, status=status.HTTP_401_UNAUTHORIZED)
         serializer.save(user=self.request.user)
+
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def like(self, request, pk=None):
+        """Toggle like on a review for the authenticated user."""
+        review = self.get_object()
+        user = request.user
+
+        if review.likes.filter(id=user.id).exists():
+            review.likes.remove(user)
+            liked = False
+        else:
+            review.likes.add(user)
+            liked = True
+
+        return Response({
+            'liked': liked,
+            'likes_count': review.likes.count(),
+        })
 
 
 class MessageViewSet(viewsets.ReadOnlyModelViewSet):

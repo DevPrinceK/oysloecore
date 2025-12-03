@@ -225,13 +225,27 @@ class LogoutAPIView(APIView):
 
     @extend_schema(responses={200: SimpleStatusSerializer}, operation_id='logout')
     def post(self, request, *args, **kwargs):
-        '''Logout user'''
-        request.user.auth_token.delete()
-        return Response({
-            "status": "success",
-            "message": "User logged out successfully",
-        }, status=status.HTTP_200_OK)
+        '''Logout user by invalidating their Knox token(s).'''
+        # Try to delete just the token used for this request
+        token = getattr(request, 'auth', None) or getattr(request, '_auth', None)
+        if token is not None:
+            try:
+                token.delete()
+            except Exception:
+                pass
+        else:
+            # Fallback: delete all tokens for this user
+            AuthToken.objects.filter(user=request.user).delete()
+
+        return Response(
+            {
+                "status": "success",
+                "message": "User logged out successfully",
+            },
+            status=status.HTTP_200_OK,
+        )
     
+
 
 class VerifyOTPAPI(APIView):
     '''Verify OTP api endpoint'''
@@ -337,6 +351,16 @@ class UserProfileAPIView(APIView):
     @extend_schema(request=UserUpdateSerializer, responses={200: UserSerializer, 400: GenericMessageSerializer}, operation_id='user_profile_put')
     def put(self, request, *args, **kwargs):
         '''Update user profile for the logged in user'''
+        user = request.user
+        serializer = UserSerializer(user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(request=UserUpdateSerializer, responses={200: UserSerializer, 400: GenericMessageSerializer}, operation_id='user_profile_patch')
+    def patch(self, request, *args, **kwargs):
+        '''Partially update user profile for the logged in user'''
         user = request.user
         serializer = UserSerializer(user, data=request.data, partial=True)
         if serializer.is_valid():
