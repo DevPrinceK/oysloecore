@@ -220,6 +220,11 @@ class ProductSerializer(serializers.ModelSerializer):
     owner = ProductOwnerSerializer(read_only=True)
     favourited_by_user = serializers.SerializerMethodField(read_only=True)
     liked_by_user = serializers.SerializerMethodField(read_only=True)
+    total_likes = serializers.SerializerMethodField(read_only=True)
+    total_favourites = serializers.SerializerMethodField(read_only=True)
+    total_reviews = serializers.SerializerMethodField(read_only=True)
+    average_rating = serializers.SerializerMethodField(read_only=True)
+    total_reports = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Product
@@ -238,6 +243,26 @@ class ProductSerializer(serializers.ModelSerializer):
         if not user or not getattr(user, 'is_authenticated', False):
             return False
         return obj.liked_by.filter(user=user).exists()
+
+    def get_total_likes(self, obj) -> int:
+        return obj.liked_by.count()
+
+    def get_total_favourites(self, obj) -> int:
+        return obj.favourited_by.count()
+
+    def get_total_reviews(self, obj) -> int:
+        return obj.reviews.count()
+
+    def get_average_rating(self, obj) -> str | None:
+        from django.db.models import Avg
+        agg = obj.reviews.aggregate(avg=Avg('rating'))
+        avg = agg.get('avg')
+        if avg is None:
+            return None
+        return f"{avg:.1f}"
+
+    def get_total_reports(self, obj) -> int:
+        return obj.reports.count()
 
 
 class FeedbackSerializer(serializers.ModelSerializer):
