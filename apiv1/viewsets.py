@@ -323,8 +323,8 @@ class ProductViewSet(viewsets.ModelViewSet):
             owner_phone = getattr(owner, 'phone', None)
             if owner_phone and hasattr(notification_utils, 'send_sms'):
                 message = (
-                    f"Your ad {product.name} is reported as taken. Please verify and update the status now! "
-                    "Be informed that you will face suspension if there's multiple report on this ad. Thank you"
+                    f"Your ad '{product.name}' has been reported as taken. If the item is truly taken, update the ad status to Taken. "
+                    "If it is not taken, you can ignore this message. Be aware that multiple reports on the same ad may lead to account suspension."
                 )
                 notification_utils.send_sms(owner_phone, message)
         except Exception:
@@ -370,6 +370,72 @@ class ProductViewSet(viewsets.ModelViewSet):
             pass
 
         return Response(ProductSerializer(product, context={'request': request}).data)
+
+
+    @action(detail=True, methods=['post'], url_path='repost-ad')
+    @extend_schema(
+        request=None,
+        responses={201: ProductSerializer, 400: None, 403: None},
+        operation_id='product_repost_ad',
+        description=(
+            'Repost a taken product as a new ad with the same details. '
+            'Only the product owner can perform this action and only when '
+            'the original product is marked as taken.'
+        ),
+    )
+    def repost_ad(self, request, pk=None):
+        """Create a new product/ad by cloning a taken product.
+
+        - Only the owner of the product may repost it.
+        - The original product **must** have `is_taken=True`.
+        - Core fields, images and product features are duplicated; likes,
+          favourites and reports are not carried over.
+        """
+        original = self.get_object()
+        owner = getattr(original, 'owner', None)
+
+        if owner is None:
+            return Response({'detail': 'Product has no owner assigned'}, status=status.HTTP_400_BAD_REQUEST)
+        if request.user != owner and not getattr(request.user, 'is_staff', False):
+            return Response({'detail': 'Only the product owner can repost this ad'}, status=status.HTTP_403_FORBIDDEN)
+        if not original.is_taken:
+            return Response({'detail': 'Only taken products can be reposted'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Optional: enforce subscription limits for reposting as well
+        error_response = self._enforce_subscription_limits(owner)
+        if error_response is not None:
+            return error_response
+
+        # Clone the product record (excluding PK and relational counters)
+        clone = Product.objects.create(
+            owner=owner,
+            name=original.name,
+            description=original.description,
+            category=original.category,
+            subcategory=original.subcategory,
+            price=original.price,
+            location=original.location,
+            status=ProductStatus.ACTIVE.value,
+            is_taken=False,
+        )
+
+        # Copy product features
+        for pf in original.product_features.all():
+            ProductFeature.objects.create(
+                product=clone,
+                feature=pf.feature,
+                value=pf.value,
+            )
+
+        # Copy images
+        for img in original.images.all():
+            ProductImage.objects.create(
+                product=clone,
+                image=img.image,
+            )
+
+        serializer = ProductSerializer(clone, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
     @action(detail=True, methods=['put'], url_path='set-status', permission_classes=[permissions.IsAdminUser])
@@ -533,7 +599,33 @@ class ReviewViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         if not self.request.user.is_authenticated:
             return Response({'detail': 'Authentication credentials were not provided.'}, status=status.HTTP_401_UNAUTHORIZED)
-        serializer.save(user=self.request.user)
+
+        review = serializer.save(user=self.request.user)
+
+        # Send an alert and SMS to the product owner when a new review is created
+        product = getattr(review, 'product', None)
+        owner = getattr(product, 'owner', None) if product else None
+        if owner is not None:
+            message = f'Your product "{product.name}" has received a new review.'
+            try:
+                Alert.objects.create(
+                    user=owner,
+                    title='New review on your product',
+                    body=message,
+                    kind='PRODUCT_REVIEWED',
+                )
+            except Exception:
+                # Avoid breaking review creation if alert fails
+                pass
+
+            # Best-effort SMS notification
+            try:
+                owner_phone = getattr(owner, 'phone', None)
+                if owner_phone and hasattr(notification_utils, 'send_sms'):
+                    notification_utils.send_sms(owner_phone, message)
+            except Exception:
+                # Never fail the main request because of SMS
+                pass
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def like(self, request, pk=None):
