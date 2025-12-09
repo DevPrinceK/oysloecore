@@ -410,6 +410,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         clone = Product.objects.create(
             owner=owner,
             name=original.name,
+            image = original.image,
             description=original.description,
             category=original.category,
             price=original.price,
