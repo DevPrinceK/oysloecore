@@ -209,8 +209,8 @@ class ProductLocationSerializer(serializers.ModelSerializer):
 class ProductOwnerSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'email', 'phone', 'name']
-        read_only_fields = ['id', 'email', 'phone', 'name']
+        fields = ['id', 'email', 'phone', 'second_number', 'name', 'admin_verified', 'id_verified', 'level', 'avatar']
+        read_only_fields = ['id', 'email', 'phone', 'second_number', 'name', 'admin_verified', 'id_verified', 'level', 'avatar']
 
 
 class ProductSerializer(serializers.ModelSerializer):

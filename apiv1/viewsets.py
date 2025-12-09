@@ -310,8 +310,8 @@ class ProductViewSet(viewsets.ModelViewSet):
                 user=owner,
                 title='Product reported as taken',
                 body=(
-                    f'Your ad "{product.name}" has been reported as taken. '
-                    'Please verify and confirm if this is correct.'
+                    f'Your ad "{product.name}" has been reported as taken. If the item is truly taken, update the ad status to Taken. '
+                    'If it is not taken, you can ignore this message. Be aware that multiple reports on the same ad may lead to account suspension.'
                 ),
                 kind='PRODUCT_TAKEN'
             )
@@ -412,7 +412,6 @@ class ProductViewSet(viewsets.ModelViewSet):
             name=original.name,
             description=original.description,
             category=original.category,
-            subcategory=original.subcategory,
             price=original.price,
             location=original.location,
             status=ProductStatus.ACTIVE.value,
