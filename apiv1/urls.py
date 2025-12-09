@@ -31,6 +31,7 @@ urlpatterns += [
     path('admin/verify-user-id/', views.AdminVerifyUserIdAPIView.as_view(), name='admin_verify_user_id'),
     path('admin/users/', views.AdminListUsersAPIView.as_view(), name='admin_users'),
     path('admin/categories/', views.AdminListCategoriesAPIView.as_view(), name='admin_categories'),
+    path('job-applications/', views.JobApplicationsView.as_view(), name='job_applications'),
 ]
 
 # chat related

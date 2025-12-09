@@ -12,16 +12,83 @@ from apiv1.serializers import (
     VerifyOTPPostRequestSerializer, LoginResponseSerializer,
     RegisterUserResponseSerializer, GenericMessageSerializer, SimpleStatusSerializer,
     UserUpdateSerializer, AdminToggleUserSerializer, AdminDeleteUserSerializer, AdminVerifyUserSerializer,
-    RedeemReferralResponseSerializer,
+    RedeemReferralResponseSerializer, JobApplicationSerializer,
 )
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import OTP, User
+from apiv1.models import JobApplication
 from apiv1.serializers import ChangePasswordSerializer, LoginSerializer, RegisterUserSerializer, ResetPasswordSerializer, UserSerializer
 from notifications.models import Alert
 from apiv1.serializers import AdminCategoryWithSubcategoriesSerializer, AdminVerifyIdSerializer
 from django.db.models import Q
+
+
+class JobApplicationsView(APIView):
+    """Public job application submission and admin review endpoints.
+
+    - Anyone can POST a new job application.
+    - Admins can GET a list of all applications or a single one by ID.
+    """
+
+    def get_permissions(self):
+        # Allow public POST, but restrict GET to admins only
+        if self.request.method == 'POST':
+            return [permissions.AllowAny()]
+        return [permissions.IsAdminUser()]
+
+    @extend_schema(
+        request=JobApplicationSerializer,
+        responses={201: JobApplicationSerializer},
+        operation_id='job_application_create',
+        description='Submit a job application. This endpoint is open to everyone.',
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = JobApplicationSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        application = serializer.save()
+
+        # Best-effort SMS confirmation to the applicant
+        try:
+            from notifications import utils as notification_utils
+
+            phone = application.phone
+            if phone and hasattr(notification_utils, 'send_sms'):
+                message = (
+                    f"Your job application (ID: {application.application_id}) has been received. "
+                    "We'll review it and get back to you."
+                )
+                notification_utils.send_sms(phone, message)
+        except Exception:
+            # Never fail the main request because of SMS issues
+            pass
+
+        return Response(JobApplicationSerializer(application).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        responses={200: JobApplicationSerializer(many=True)},
+        operation_id='job_application_list',
+        description='List all job applications. Admin-only.',
+    )
+    def get(self, request, *args, **kwargs):
+        """List all applications or retrieve one by application_id (admin only)."""
+        application_id = request.query_params.get('application_id')
+        qs = JobApplication.objects.all().order_by('-created_at')
+
+        if application_id:
+            # Filter by human-facing application_id
+            qs = qs.filter(application_id=application_id)
+
+        if application_id:
+            obj = qs.first()
+            if not obj:
+                return Response({'detail': 'Application not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(JobApplicationSerializer(obj).data)
+
+        return Response(JobApplicationSerializer(qs, many=True).data)
 
 class LoginAPI(APIView):
     '''Login api endpoint'''

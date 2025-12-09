@@ -425,3 +425,27 @@ class TermsAndConditions(TimeStampedModel):
 
     def __str__(self):
         return f"Terms and Conditions updated on {self.updated_at.strftime('%Y-%m-%d %H:%M:%S')}"
+    
+
+class JobApplication(TimeStampedModel):
+    '''Model to store job application details'''
+
+    def generate_application_id():
+        """Generates a short unique application ID.
+
+        Uses a callable so a new value is generated per instance.
+        """
+        return ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
+
+    application_id = models.CharField(max_length=20, unique=True, default=generate_application_id)
+    name = models.CharField(max_length=100)
+    email = models.EmailField()
+    phone = models.CharField(max_length=20)
+    location = models.CharField(max_length=100)
+    gender = models.CharField(max_length=20)
+    dob = models.DateField()
+    resume = models.FileField(upload_to='job_applications/resumes/')
+    cover_letter = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return f"Job Application from {self.name} ({self.email})"

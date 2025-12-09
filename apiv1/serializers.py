@@ -26,6 +26,7 @@ from apiv1.models import (
     ProductLike,
     ProductReport,
     Location,
+    JobApplication,
 )
 from notifications.models import Alert
 from oysloecore.sysutils.constants import ProductStatus
@@ -460,6 +461,17 @@ class TermsAndConditionsSerializer(serializers.ModelSerializer):
         model = TermsAndConditions
         fields = ['id', 'title', 'date', 'body', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class JobApplicationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = JobApplication
+        fields = [
+            'id', 'application_id', 'name', 'email', 'phone',
+            'location', 'gender', 'dob', 'resume', 'cover_letter',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'application_id', 'created_at', 'updated_at']
 
 
 
