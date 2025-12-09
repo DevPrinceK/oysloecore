@@ -463,6 +463,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             return Response({'detail': f'{first_field}: {first_error}'}, status=status.HTTP_400_BAD_REQUEST)
         body_id = serializer.validated_data['id']
         new_status = serializer.validated_data['status']
+        suspension_note = serializer.validated_data.get('suspension_note')
         # Ensure provided id matches path id
         try:
             if int(body_id) != int(product.id):
@@ -473,7 +474,14 @@ class ProductViewSet(viewsets.ModelViewSet):
         if new_status not in [tag.value for tag in ProductStatus]:
             return Response({'detail': 'Invalid status'}, status=status.HTTP_400_BAD_REQUEST)
         product.status = new_status
-        product.save(update_fields=['status', 'updated_at'])
+        # Persist or clear suspension_note depending on status
+        if new_status == ProductStatus.SUSPENDED.value:
+            product.suspension_note = suspension_note
+        else:
+            # Clear any previous suspension note when leaving suspended state
+            product.suspension_note = None
+
+        product.save(update_fields=['status', 'suspension_note', 'updated_at'])
         # generate product approval alert if possible
         if new_status in ["VERIFIED", ProductStatus.ACTIVE.value]:
             owner = None

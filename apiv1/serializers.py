@@ -535,6 +535,20 @@ class AdminVerifyUserSerializer(serializers.Serializer):
 class AdminChangeProductStatusSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     status = serializers.ChoiceField(choices=[tag.value for tag in ProductStatus])
+    suspension_note = serializers.CharField(required=False, allow_blank=False)
+
+    def validate(self, attrs):
+        """Require suspension_note only when setting status to SUSPENDED.
+
+        For all other statuses, the field remains optional.
+        """
+        status_value = attrs.get('status')
+        note = attrs.get('suspension_note')
+        if status_value == ProductStatus.SUSPENDED.value and not note:
+            raise serializers.ValidationError({
+                'suspension_note': 'This field is required when suspending a product.',
+            })
+        return attrs
 
 
 class MarkAsTakenSerializer(serializers.Serializer):

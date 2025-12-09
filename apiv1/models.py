@@ -58,6 +58,7 @@ class Product(TimeStampedModel):
     price = models.DecimalField(max_digits=10, decimal_places=2)
     duration = models.CharField(max_length=100, default='One Time Payment')
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='products', null=True)
+    suspension_note = models.TextField(blank=True, null=True, help_text='Reason provided when this product is suspended by an admin.')
     
     @property
     def all_images(self):
