@@ -11,7 +11,7 @@ from apiv1.models import (
     PrivacyPolicy, TermsAndConditions,
     Favourite, ProductLike, ProductReport,
 )
-from accounts.models import Location
+from apiv1.models import Location
 from apiv1.serializers import (
     CategorySerializer, SubCategorySerializer, ProductSerializer, ProductImageSerializer,
     FeatureSerializer, PosibleFeatureValueSerializer, ProductFeatureSerializer, ProductFeatureCreateSerializer, ReviewSerializer,

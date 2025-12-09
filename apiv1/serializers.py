@@ -25,8 +25,8 @@ from apiv1.models import (
     Favourite,
     ProductLike,
     ProductReport,
+    Location,
 )
-from accounts.models import Location
 from notifications.models import Alert
 from oysloecore.sysutils.constants import ProductStatus
 
@@ -209,16 +209,24 @@ class ProductLocationSerializer(serializers.ModelSerializer):
 class ProductOwnerSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'email', 'phone', 'second_number', 'name', 'admin_verified', 'id_verified', 'level', 'avatar']
-        read_only_fields = ['id', 'email', 'phone', 'second_number', 'name', 'admin_verified', 'id_verified', 'level', 'avatar']
+        fields = ['id', 'email', 'phone', 'second_number', 'name', 'admin_verified', 'id_verified', 'level', 'avatar', 'business_logo']
+        read_only_fields = ['id', 'email', 'phone', 'second_number', 'name', 'admin_verified', 'id_verified', 'level', 'avatar', 'business_logo']
 
 
 class ProductSerializer(serializers.ModelSerializer):
     images = ProductImageSerializer(many=True, read_only=True)
     product_features = ProductFeatureSerializer(many=True, read_only=True)
     location = ProductLocationSerializer(read_only=True)
+    location_id = serializers.PrimaryKeyRelatedField(
+        queryset=Location.objects.filter(is_active=True),
+        source='location',
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
     owner = ProductOwnerSerializer(read_only=True)
     favourited_by_user = serializers.SerializerMethodField(read_only=True)
+    multiplier = serializers.SerializerMethodField(read_only=True)
     liked_by_user = serializers.SerializerMethodField(read_only=True)
     total_likes = serializers.SerializerMethodField(read_only=True)
     total_favourites = serializers.SerializerMethodField(read_only=True)
@@ -229,6 +237,12 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = Product
         fields = "__all__"
+
+    def get_multiplier(self, obj) -> float:
+        sub = UserSubscription.objects.filter(user=obj.owner, is_active=True).order_by('-created_at').first()
+        if sub and sub.subscription:
+            return sub.subscription.multiplier
+        return 1.0
 
     def get_favourited_by_user(self, obj) -> bool:
         request = self.context.get('request')
