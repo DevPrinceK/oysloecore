@@ -30,6 +30,7 @@ class Command(BaseCommand):
             # subprocess.run(["systemctl", "restart", "celery"], check=True)
             # sudo systemctl reload nginx
             subprocess.run(["sudo", "systemctl", "restart", "nginx"], check=True)
+            subprocess.run(["sudo", "systemctl", "enable", "--now", "redis-server"], check=True)
             subprocess.run(["sudo", "systemctl", "reload", "nginx"], check=True)
             subprocess.run(["sudo", "systemctl", "restart", "oysloe"], check=True)
         except Exception as e:
