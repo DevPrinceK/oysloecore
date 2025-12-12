@@ -1,16 +1,28 @@
-"""
-ASGI config for oysloecore project.
+"""ASGI entrypoint for HTTP + WebSocket via Django Channels.
 
-It exposes the ASGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/5.2/howto/deployment/asgi/
+This wires standard Django views over HTTP and the chat-related
+websocket routes defined in ``apiv1.routing.websocket_urlpatterns``.
 """
 
 import os
 
-from django.core.asgi import get_asgi_application
-
+# Configure Django settings **before** importing Django or app modules
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'oysloecore.settings')
 
-application = get_asgi_application()
+from django.core.asgi import get_asgi_application
+
+# Initialize Django and populate the app registry *before* importing routing
+django_asgi_app = get_asgi_application()
+
+from channels.auth import AuthMiddlewareStack
+from channels.routing import ProtocolTypeRouter, URLRouter
+import apiv1.routing
+
+application = ProtocolTypeRouter(
+    {
+        "http": django_asgi_app,
+        "websocket": AuthMiddlewareStack(
+            URLRouter(apiv1.routing.websocket_urlpatterns)
+        ),
+    }
+)
