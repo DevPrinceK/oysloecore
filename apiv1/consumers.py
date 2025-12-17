@@ -9,8 +9,19 @@ logger = logging.getLogger(__name__)
 class NewChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         logger.info(f"Attempting to connect: {self.scope}")
-        self.room_name = self.scope['url_route']['kwargs']['room_name']
-        self.room_group_name = f'chat_{self.room_name}'
+        # The URL param is named `room_name`, but clients often pass `ChatRoom.room_id`.
+        # Resolve by either room_id or name to support group chatrooms where they differ.
+        self.room_identifier = self.scope['url_route']['kwargs']['room_name']
+        self.room = await self.get_room(self.room_identifier)
+        if not self.room:
+            logger.warning(f"ChatRoom not found for identifier: {self.room_identifier}")
+            await self.close()
+            return
+
+        self.room_id = self.room.room_id
+        self.room_name = self.room.name
+        # Always group by room_id so all clients converge on the same channel group.
+        self.room_group_name = f'chat_{self.room_id}'
         self.user = await self.get_user_from_token(self.scope['query_string'])
 
         if self.user:
@@ -51,6 +62,14 @@ class NewChatConsumer(AsyncWebsocketConsumer):
             logger.warning(f"Token auth failed: {e}")
             return None
 
+    @database_sync_to_async
+    def get_room(self, identifier):
+        # Try room_id first (what the REST APIs typically return), then name.
+        return (
+            ChatRoom.objects.filter(room_id=identifier).first()
+            or ChatRoom.objects.filter(name=identifier).first()
+        )
+
     async def disconnect(self, close_code):
         if hasattr(self, 'room_group_name'):
             await self.channel_layer.group_discard(
@@ -84,7 +103,7 @@ class NewChatConsumer(AsyncWebsocketConsumer):
         elif message:  # Normal chat message
             recipient = data.get('recipient')
             # Save the message to the database
-            await self.save_message(self.room_name, self.user, message)
+            await self.save_message(self.room, self.user, message)
             from datetime import datetime
             timestamp = datetime.utcnow().isoformat()
             if recipient:
@@ -127,12 +146,9 @@ class NewChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def get_member_ids(self):
-        from .models import ChatRoom
-        try:
-            room = ChatRoom.objects.get(name=self.room_name)
-            return list(room.members.values_list('id', flat=True))
-        except ChatRoom.DoesNotExist:
+        if not getattr(self, 'room', None):
             return []
+        return list(self.room.members.values_list('id', flat=True))
 
     async def notify_unread_count_groups(self):
         member_ids = await self.get_member_ids()
@@ -144,13 +160,11 @@ class NewChatConsumer(AsyncWebsocketConsumer):
             )
 
     @database_sync_to_async
-    def save_message(self, room_name, sender, content):
-        from .models import ChatRoom, Message
-        try:
-            room = ChatRoom.objects.get(name=room_name)
-            Message.objects.create(room=room, sender=sender, content=content)
-        except ChatRoom.DoesNotExist:
-            pass
+    def save_message(self, room, sender, content):
+        from .models import Message
+        if not room:
+            return
+        Message.objects.create(room=room, sender=sender, content=content)
 
     async def chat_message(self, event):
         await self.send(text_data=json.dumps({
@@ -174,22 +188,20 @@ class NewChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def get_chat_history(self):
-        from .models import ChatRoom, Message
-        try:
-            room = ChatRoom.objects.get(name=self.room_name)
-            messages = Message.objects.filter(room=room).order_by('created_at')
-            return [
-                {
-                    'id': msg.id,
-                    'sender': msg.sender.name,
-                    'email': msg.sender.email,
-                    'content': msg.content,
-                    'timestamp': msg.created_at.isoformat()
-                }
-                for msg in messages
-            ]
-        except ChatRoom.DoesNotExist:
+        from .models import Message
+        if not getattr(self, 'room', None):
             return []
+        messages = Message.objects.filter(room=self.room).order_by('created_at')
+        return [
+            {
+                'id': msg.id,
+                'sender': msg.sender.name,
+                'email': msg.sender.email,
+                'content': msg.content,
+                'timestamp': msg.created_at.isoformat()
+            }
+            for msg in messages
+        ]
 
     async def send_chat_history(self):
         history = await self.get_chat_history()
@@ -200,12 +212,9 @@ class NewChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def mark_all_messages_as_read(self):
-        from .models import ChatRoom
-        try:
-            room = ChatRoom.objects.get(name=self.room_name)
-            room.read_all_messages(self.user)
-        except ChatRoom.DoesNotExist:
-            pass
+        if not getattr(self, 'room', None):
+            return
+        self.room.read_all_messages(self.user)
 
 
 class TemChatConsumer(AsyncWebsocketConsumer):
@@ -231,8 +240,9 @@ class TemChatConsumer(AsyncWebsocketConsumer):
             await self.close()
             return
 
+        self.room_id = self.room.room_id
         self.room_name = self.room.name
-        self.room_group_name = f'chat_{self.room_name}'
+        self.room_group_name = f'chat_{self.room_id}'
 
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
@@ -273,7 +283,7 @@ class TemChatConsumer(AsyncWebsocketConsumer):
 
         if message:
             # save and broadcast to room
-            await self.save_message(self.room_name, self.user, message)
+            await self.save_message(self.room, self.user, message)
             from datetime import datetime
             timestamp = datetime.utcnow().isoformat()
 
@@ -369,32 +379,28 @@ class TemChatConsumer(AsyncWebsocketConsumer):
                 return None
 
     @database_sync_to_async
-    def save_message(self, room_name, sender, content):
-        from .models import ChatRoom, Message
-        try:
-            room = ChatRoom.objects.get(name=room_name)
-            Message.objects.create(room=room, sender=sender, content=content)
-        except ChatRoom.DoesNotExist:
-            pass
+    def save_message(self, room, sender, content):
+        from .models import Message
+        if not room:
+            return
+        Message.objects.create(room=room, sender=sender, content=content)
 
     @database_sync_to_async
     def get_chat_history(self):
-        from .models import ChatRoom, Message
-        try:
-            room = ChatRoom.objects.get(name=self.room_name)
-            messages = Message.objects.filter(room=room).order_by('created_at')
-            return [
-                {
-                    'id': msg.id,
-                    'sender': msg.sender.name,
-                    'email': msg.sender.email,
-                    'content': msg.content,
-                    'timestamp': msg.created_at.isoformat()
-                }
-                for msg in messages
-            ]
-        except ChatRoom.DoesNotExist:
+        from .models import Message
+        if not getattr(self, 'room', None):
             return []
+        messages = Message.objects.filter(room=self.room).order_by('created_at')
+        return [
+            {
+                'id': msg.id,
+                'sender': msg.sender.name,
+                'email': msg.sender.email,
+                'content': msg.content,
+                'timestamp': msg.created_at.isoformat()
+            }
+            for msg in messages
+        ]
 
     async def send_chat_history(self):
         history = await self.get_chat_history()
@@ -405,12 +411,9 @@ class TemChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def get_member_ids(self):
-        from .models import ChatRoom
-        try:
-            room = ChatRoom.objects.get(name=self.room_name)
-            return list(room.members.values_list('id', flat=True))
-        except ChatRoom.DoesNotExist:
+        if not getattr(self, 'room', None):
             return []
+        return list(self.room.members.values_list('id', flat=True))
 
     async def notify_unread_count_groups(self):
         member_ids = await self.get_member_ids()
@@ -423,12 +426,9 @@ class TemChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def mark_all_messages_as_read(self):
-        from .models import ChatRoom
-        try:
-            room = ChatRoom.objects.get(name=self.room_name)
-            room.read_all_messages(self.user)
-        except ChatRoom.DoesNotExist:
-            pass
+        if not getattr(self, 'room', None):
+            return
+        self.room.read_all_messages(self.user)
 
 
 class ChatRoomsConsumer(AsyncWebsocketConsumer):
