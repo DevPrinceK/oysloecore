@@ -101,38 +101,22 @@ class NewChatConsumer(AsyncWebsocketConsumer):
                 }
             )
         elif message:  # Normal chat message
-            recipient = data.get('recipient')
             # Save the message to the database
             await self.save_message(self.room, self.user, message)
             from datetime import datetime
             timestamp = datetime.utcnow().isoformat()
-            if recipient:
-                # Individual chat
-                # send to the recipient's group
-                recipient_group_name = f'user_{recipient}'
-                await self.channel_layer.group_send(
-                    recipient_group_name,
-                    {
-                        'type': 'chat_message',
-                        'message': message,
-                        'username': self.user.email,
-                        'email': self.user.email,
-                        'timestamp': timestamp
-                    }
-                )
-                # Do NOT send directly to sender's socket for individual chat (recipient_group_name is not sender)
-            else:
-                # Group chat
-                await self.channel_layer.group_send(
-                    self.room_group_name,
-                    {
-                        'type': 'chat_message',
-                        'message': message,
-                        'username': self.user.name,
-                        'email': self.user.email,
-                        'timestamp': timestamp
-                    }
-                )
+            # Always broadcast to the room group. The `recipient` field (if present)
+            # is a client concern; server delivery uses the room membership.
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'chat_message',
+                    'message': message,
+                    'username': self.user.name,
+                    'email': self.user.email,
+                    'timestamp': timestamp
+                }
+            )
                
             # Notify chatrooms_updates group to refresh chatrooms list
             await self.channel_layer.group_send(
