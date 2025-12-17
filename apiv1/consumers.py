@@ -449,6 +449,11 @@ class ChatRoomsConsumer(AsyncWebsocketConsumer):
         from knox.auth import TokenAuthentication
         parsed = parse_qs(query_string.decode())
         token = parsed.get("token", [None])[0]
+
+        # Normalize token in case the client accidentally appends a trailing slash
+        if token:
+            token = token.strip().rstrip("/")
+
         if not token:
             return None
         try:
@@ -549,6 +554,11 @@ class UnreadCountConsumer(AsyncWebsocketConsumer):
         from knox.auth import TokenAuthentication
         parsed = parse_qs(query_string.decode())
         token = parsed.get("token", [None])[0]
+
+        # Normalize token in case the client accidentally appends a trailing slash
+        if token:
+            token = token.strip().rstrip("/")
+
         if not token:
             return None
         try:
