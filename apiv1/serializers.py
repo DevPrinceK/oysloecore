@@ -35,6 +35,8 @@ from oysloecore.sysutils.constants import ProductStatus
 class UserSerializer(serializers.ModelSerializer):
     active_ads = serializers.IntegerField(read_only=True)
     taken_ads = serializers.IntegerField(read_only=True)
+    total_ads = serializers.IntegerField(read_only=True)
+    total_taken_ads = serializers.IntegerField(read_only=True)
     class Meta:
         model = User
         exclude = ["password", "groups", "user_permissions"]
@@ -385,6 +387,27 @@ class CouponSerializer(serializers.ModelSerializer):
 
     def get_remaining_uses(self, obj) -> int | None:
         return obj.remaining_uses()
+
+
+class CouponBroadcastRequestSerializer(serializers.Serializer):
+    """Admin broadcast request body for sharing a coupon with users."""
+
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        help_text='List of user IDs that should receive the coupon.',
+    )
+
+
+class CouponBroadcastResponseSerializer(serializers.Serializer):
+    """Response payload for coupon broadcast."""
+
+    status = serializers.CharField()
+    coupon = serializers.CharField(help_text='Coupon code that was broadcast.')
+    requested_user_ids = serializers.ListField(child=serializers.IntegerField(min_value=1))
+    missing_user_ids = serializers.ListField(child=serializers.IntegerField(min_value=1))
+    alerts_created = serializers.IntegerField(min_value=0)
+    sms_queued = serializers.BooleanField()
 
 
 class CouponRedemptionSerializer(serializers.ModelSerializer):

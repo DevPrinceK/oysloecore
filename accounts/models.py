@@ -70,6 +70,10 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
     phone_verified = models.BooleanField(default=False)
     email_verified = models.BooleanField(default=False)
 
+    # Persistent counters (do not decrement on delete)
+    total_ads = models.PositiveIntegerField(default=0)
+    total_taken_ads = models.PositiveIntegerField(default=0)
+
     # preferences
     preferred_notification_email = models.EmailField(max_length=50, blank=True, null=True)
     preferred_notification_phone = models.CharField(max_length=15, blank=True, null=True)

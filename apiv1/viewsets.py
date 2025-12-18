@@ -1,4 +1,5 @@
 import requests
+import threading
 from rest_framework import permissions, viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -20,9 +21,11 @@ from apiv1.serializers import (
     FeedbackSerializer, SubscriptionSerializer, UserSubscriptionSerializer,
     PaymentSerializer, AccountDeleteRequestSerializer,
     PrivacyPolicySerializer, TermsAndConditionsSerializer, ProductReportSerializer,
+    CouponBroadcastRequestSerializer, CouponBroadcastResponseSerializer,
 )
-from django.db import transaction
+from django.db import transaction, models
 from django.utils import timezone
+from django.contrib.auth import get_user_model
 from drf_spectacular.utils import extend_schema, OpenApiExample
 from oysloecore.sysutils.constants import ProductStatus
 from notifications.models import Alert
@@ -163,7 +166,14 @@ class ProductViewSet(viewsets.ModelViewSet):
             # For non-staff, force owner to be the current user
             owner = request_user
 
-        serializer.save(owner=owner)
+        product = serializer.save(owner=owner)
+
+        # Persistent counters: increment total ads created (do not decrement on delete)
+        try:
+            if owner and hasattr(owner, 'total_ads') and getattr(owner, 'pk', None):
+                owner.__class__.objects.filter(pk=owner.pk).update(total_ads=models.F('total_ads') + 1)
+        except Exception:
+            pass
 
     @action(detail=False, methods=['get'], url_path='related')
     def related(self, request):
@@ -345,23 +355,32 @@ class ProductViewSet(viewsets.ModelViewSet):
         Only the product owner is allowed to confirm. Once confirmed, the
         product's ``is_taken`` flag is set to True.
         """
-        product = self.get_object()
-        owner = getattr(product, 'owner', None)
-        if owner is None:
-            return Response({'detail': 'Product has no owner assigned'}, status=status.HTTP_400_BAD_REQUEST)
-        if request.user != owner:
-            return Response({'detail': 'Only the product owner can confirm this action'}, status=status.HTTP_403_FORBIDDEN)
+        with transaction.atomic():
+            product = Product.objects.select_for_update().get(pk=self.get_object().pk)
+            owner_id = getattr(product, 'owner_id', None)
+            if owner_id is None:
+                return Response({'detail': 'Product has no owner assigned'}, status=status.HTTP_400_BAD_REQUEST)
+            if getattr(request.user, 'pk', None) != owner_id:
+                return Response({'detail': 'Only the product owner can confirm this action'}, status=status.HTTP_403_FORBIDDEN)
 
-        if product.is_taken:
-            return Response({'detail': 'Product already marked as taken'}, status=status.HTTP_200_OK)
+            if product.is_taken:
+                return Response({'detail': 'Product already marked as taken'}, status=status.HTTP_200_OK)
 
-        product.is_taken = True
-        product.save(update_fields=['is_taken', 'updated_at'])
+            product.is_taken = True
+            product.save(update_fields=['is_taken', 'updated_at'])
+
+            # Persistent counters: increment total taken confirmations
+            try:
+                owner_model = request.user.__class__
+                if hasattr(request.user, 'total_taken_ads'):
+                    owner_model.objects.filter(pk=owner_id).update(total_taken_ads=models.F('total_taken_ads') + 1)
+            except Exception:
+                pass
 
         # Create a confirmation alert to the owner
         try:
             Alert.objects.create(
-                user=owner,
+                user=request.user,
                 title='Product taken confirmed',
                 body=f'You have confirmed that your product "{product.name}" is taken.',
                 kind='PRODUCT_TAKEN_CONFIRMED'
@@ -418,6 +437,13 @@ class ProductViewSet(viewsets.ModelViewSet):
             status=ProductStatus.ACTIVE.value,
             is_taken=False,
         )
+
+        # Persistent counters: reposting creates a new ad
+        try:
+            if owner and hasattr(owner, 'total_ads') and getattr(owner, 'pk', None):
+                owner.__class__.objects.filter(pk=owner.pk).update(total_ads=models.F('total_ads') + 1)
+        except Exception:
+            pass
 
         # Copy product features
         for pf in original.product_features.all():
@@ -705,6 +731,157 @@ class CouponViewSet(viewsets.ModelViewSet):
     filterset_fields = ['code', 'is_active', 'discount_type']
     search_fields = ['code', 'description']
     ordering_fields = ['created_at', 'updated_at']
+
+    def get_permissions(self):
+        """Coupon access control.
+
+        - Only admins can create/update/delete/expire coupons.
+        - Authenticated users can list/retrieve and redeem coupons.
+        """
+        admin_only_actions = {'create', 'update', 'partial_update', 'destroy', 'expire', 'broadcast'}
+        if self.action in admin_only_actions:
+            return [permissions.IsAdminUser()]
+        return [permissions.IsAuthenticated()]
+
+    @action(detail=True, methods=['post'], url_path='broadcast', permission_classes=[permissions.IsAdminUser])
+    @extend_schema(
+        request=CouponBroadcastRequestSerializer,
+        responses={200: CouponBroadcastResponseSerializer, 400: None},
+        operation_id='coupon_broadcast',
+        description=(
+            'Admin-only: broadcast/share a coupon to one or many users. '
+            'Creates in-app alerts and queues SMS sending (fire-and-forget).'
+        ),
+        examples=[
+            OpenApiExample(
+                'Broadcast coupon to users',
+                value={'user_ids': [1, 2, 3]},
+                request_only=True,
+            )
+            ,
+            OpenApiExample(
+                'Broadcast response example',
+                value={
+                    'status': 'ok',
+                    'coupon': 'WELCOME10',
+                    'requested_user_ids': [1, 2, 3],
+                    'missing_user_ids': [],
+                    'alerts_created': 3,
+                    'sms_queued': True,
+                },
+                response_only=True,
+            ),
+        ],
+    )
+    def broadcast(self, request, pk=None):
+        """Broadcast a coupon to selected users.
+
+        Body: {"user_ids": [<int>, ...]}
+        - Creates an Alert per user.
+        - Sends SMS in a background thread (best-effort).
+        """
+        coupon = self.get_object()
+
+        raw_ids = request.data.get('user_ids')
+        if raw_ids is None:
+            # tolerate alternate client key
+            raw_ids = request.data.get('users')
+
+        if not raw_ids:
+            return Response({'detail': 'user_ids is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Normalize ids: accept list of ints/strings or a comma-separated string
+        user_ids: list[int] = []
+        if isinstance(raw_ids, str):
+            parts = [p.strip() for p in raw_ids.split(',') if p.strip()]
+            for p in parts:
+                try:
+                    user_ids.append(int(p))
+                except Exception:
+                    return Response({'detail': f'Invalid user id: {p}'}, status=status.HTTP_400_BAD_REQUEST)
+        elif isinstance(raw_ids, (list, tuple)):
+            for v in raw_ids:
+                try:
+                    user_ids.append(int(v))
+                except Exception:
+                    return Response({'detail': f'Invalid user id: {v}'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response({'detail': 'user_ids must be a list of integers'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # De-duplicate while preserving order
+        seen: set[int] = set()
+        user_ids = [i for i in user_ids if not (i in seen or seen.add(i))]
+        if not user_ids:
+            return Response({'detail': 'No valid user_ids provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        User = get_user_model()
+        users_qs = User.objects.filter(id__in=user_ids)
+        # Respect common soft-delete / active flags if present
+        if hasattr(User, 'is_active'):
+            users_qs = users_qs.filter(is_active=True)
+        if hasattr(User, 'deleted'):
+            users_qs = users_qs.filter(deleted=False)
+        users = list(users_qs)
+
+        found_ids = {u.id for u in users}
+        missing_ids = [i for i in user_ids if i not in found_ids]
+
+        # Create in-app alerts (best-effort per user)
+        title = 'New coupon available'
+        desc = (coupon.description or '').strip()
+        validity = ''
+        if getattr(coupon, 'valid_until', None):
+            try:
+                validity = f" Valid until {coupon.valid_until.strftime('%Y-%m-%d %H:%M')}."
+            except Exception:
+                validity = ''
+        body = f"You received a coupon: {coupon.code}." + (f" {desc}" if desc else '') + validity
+
+        alerts_created = 0
+        for u in users:
+            try:
+                Alert.objects.create(user=u, title=title, body=body, kind='COUPON')
+                alerts_created += 1
+            except Exception:
+                # Do not fail entire broadcast due to one alert
+                pass
+
+        # Queue SMS sending in background thread (fire-and-forget)
+        sms_queued = False
+        try:
+            send_sms = getattr(notification_utils, 'send_sms', None)
+            if callable(send_sms):
+                phone_numbers: list[str] = []
+                for u in users:
+                    phone = getattr(u, 'preferred_notification_phone', None) or getattr(u, 'phone', None)
+                    if phone:
+                        phone_numbers.append(str(phone))
+
+                def _send_bulk_sms(numbers: list[str], message: str):
+                    for num in numbers:
+                        try:
+                            send_sms(num, message)
+                        except Exception:
+                            continue
+
+                if phone_numbers:
+                    t = threading.Thread(target=_send_bulk_sms, args=(phone_numbers, body), daemon=True)
+                    t.start()
+                    sms_queued = True
+        except Exception:
+            sms_queued = False
+
+        return Response(
+            {
+                'status': 'ok',
+                'coupon': coupon.code,
+                'requested_user_ids': user_ids,
+                'missing_user_ids': missing_ids,
+                'alerts_created': alerts_created,
+                'sms_queued': sms_queued,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     def get_serializer_class(self):
         from apiv1.serializers import CouponSerializer  # local import to avoid circular
