@@ -1,5 +1,6 @@
 import requests
 import threading
+from uuid import uuid4
 from rest_framework import permissions, viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -22,7 +23,9 @@ from apiv1.serializers import (
     PaymentSerializer, AccountDeleteRequestSerializer,
     PrivacyPolicySerializer, TermsAndConditionsSerializer, ProductReportSerializer,
     CouponBroadcastRequestSerializer, CouponBroadcastResponseSerializer,
+    WalletCashoutRequestAdminSerializer, AdminCashoutDecisionSerializer,
 )
+from accounts.models import Wallet, WalletCashoutRequest
 from django.db import transaction, models
 from django.utils import timezone
 from django.contrib.auth import get_user_model
@@ -1437,3 +1440,224 @@ class ProductReportViewSet(viewsets.ReadOnlyModelViewSet):
         if user.is_staff:
             return ProductReport.objects.select_related('product', 'user').order_by('-created_at')
         return ProductReport.objects.select_related('product').filter(user=user).order_by('-created_at')
+
+
+class WalletCashoutRequestViewSet(viewsets.ReadOnlyModelViewSet):
+    """Admin-only view of wallet cashout requests with approve/reject actions."""
+
+    queryset = WalletCashoutRequest.objects.select_related('user').order_by('-created_at')
+    serializer_class = WalletCashoutRequestAdminSerializer
+    permission_classes = [permissions.IsAdminUser]
+    filterset_fields = ['status', 'user']
+    search_fields = ['momo_number', 'momo_network', 'user__email', 'user__phone', 'user__name']
+    ordering_fields = ['created_at', 'updated_at', 'amount', 'status']
+
+    def _paystack_headers(self):
+        return {
+            'Authorization': f"Bearer {settings.PAYSTACK_SECRET_KEY}",
+            'Content-Type': 'application/json',
+        }
+
+    def _paystack_base_url(self):
+        return getattr(settings, 'PAYSTACK_BASE_URL', 'https://api.paystack.co').rstrip('/')
+
+    @staticmethod
+    def _normalize_momo_network(value: str) -> str:
+        return ''.join(ch for ch in (value or '').strip().lower() if ch.isalnum())
+
+    def _resolve_paystack_bank_code(self, momo_network: str) -> str:
+        """Resolve the Paystack bank_code for a Mobile Money network.
+
+        By default we pass through the stored momo_network. Optionally, configure
+        `PAYSTACK_MOMO_BANK_CODE_MAP` in Django settings to map common inputs
+        (e.g. "mtn", "vodafone", "airteltigo") to the bank_code Paystack expects.
+        """
+        raw = (momo_network or '').strip()
+        if not raw:
+            return raw
+
+        mapping = getattr(settings, 'PAYSTACK_MOMO_BANK_CODE_MAP', None)
+        if isinstance(mapping, dict) and mapping:
+            normalized = self._normalize_momo_network(raw)
+            mapped = mapping.get(normalized)
+            if mapped:
+                return str(mapped).strip()
+        return raw
+
+    def _ensure_paystack_recipient(self, cashout: WalletCashoutRequest):
+        """Create a Paystack transfer recipient if missing.
+
+        Note: Paystack recipient creation parameters depend on Paystack setup and country.
+        This implementation uses `type=mobile_money` and passes `momo_network` as `bank_code`.
+        If Paystack rejects it, update your network -> bank_code mapping accordingly.
+        """
+        if cashout.provider_recipient_code:
+            return cashout.provider_recipient_code
+
+        if not settings.PAYSTACK_SECRET_KEY:
+            raise ValueError('PAYSTACK_SECRET_KEY is not configured')
+
+        url = f"{self._paystack_base_url()}/transferrecipient"
+        bank_code = self._resolve_paystack_bank_code(cashout.momo_network)
+        payload = {
+            'type': 'mobile_money',
+            'name': cashout.momo_account_name or getattr(cashout.user, 'name', '') or getattr(cashout.user, 'email', 'User'),
+            'account_number': cashout.momo_number,
+            'bank_code': bank_code,
+            'currency': 'GHS',
+        }
+        resp = requests.post(url, json=payload, headers=self._paystack_headers(), timeout=15)
+        data = resp.json() if resp.content else {}
+        if not resp.ok or not data.get('status'):
+            hint = ''
+            if bank_code == (cashout.momo_network or '').strip():
+                hint = ' (If this is a bank_code issue, configure PAYSTACK_MOMO_BANK_CODE_MAP in settings.)'
+            raise RuntimeError(f"Paystack recipient creation failed: {data}{hint}")
+        recipient_code = (data.get('data') or {}).get('recipient_code')
+        if not recipient_code:
+            raise RuntimeError(f"Paystack recipient creation returned no recipient_code: {data}")
+
+        cashout.provider = 'paystack'
+        cashout.provider_recipient_code = recipient_code
+        cashout.raw_response = data
+        cashout.save(update_fields=['provider', 'provider_recipient_code', 'raw_response', 'updated_at'])
+        return recipient_code
+
+    def _initiate_paystack_transfer(self, cashout: WalletCashoutRequest, recipient_code: str):
+        if not settings.PAYSTACK_SECRET_KEY:
+            raise ValueError('PAYSTACK_SECRET_KEY is not configured')
+
+        url = f"{self._paystack_base_url()}/transfer"
+        reference = f"WCR-{cashout.id}-{uuid4().hex[:8]}"
+        payload = {
+            'source': 'balance',
+            'amount': int(float(cashout.amount) * 100),
+            'recipient': recipient_code,
+            'reference': reference,
+            'reason': f"Wallet cashout #{cashout.id}",
+            'currency': 'GHS',
+        }
+        resp = requests.post(url, json=payload, headers=self._paystack_headers(), timeout=20)
+        data = resp.json() if resp.content else {}
+        if not resp.ok or not data.get('status'):
+            raise RuntimeError(f"Paystack transfer initiation failed: {data}")
+
+        transfer_data = data.get('data') or {}
+        transfer_code = transfer_data.get('transfer_code')
+        transfer_status = transfer_data.get('status')
+
+        cashout.provider = 'paystack'
+        cashout.provider_reference = reference
+        cashout.provider_transfer_code = transfer_code
+        cashout.raw_response = data
+
+        # Transfers can be asynchronous; treat non-success as PROCESSING
+        if transfer_status == 'success':
+            cashout.status = WalletCashoutRequest.STATUS_SUCCESS
+            cashout.processed_at = timezone.now()
+        else:
+            cashout.status = WalletCashoutRequest.STATUS_PROCESSING
+        cashout.save(
+            update_fields=[
+                'provider', 'provider_reference', 'provider_transfer_code', 'raw_response',
+                'status', 'processed_at', 'updated_at'
+            ]
+        )
+
+        return data
+
+    @action(detail=True, methods=['post'], url_path='approve')
+    @extend_schema(
+        request=AdminCashoutDecisionSerializer,
+        responses={200: WalletCashoutRequestAdminSerializer, 400: None, 502: None},
+        operation_id='cashout_request_approve',
+        description='Approve a cashout request and trigger Paystack transfer.'
+    )
+    def approve(self, request, pk=None):
+        cashout = self.get_object()
+        decision = AdminCashoutDecisionSerializer(data=request.data)
+        decision.is_valid(raise_exception=False)
+        admin_note = (decision.validated_data.get('note') if hasattr(decision, 'validated_data') else None) or request.data.get('note')
+
+        with transaction.atomic():
+            cashout = WalletCashoutRequest.objects.select_for_update().select_related('user').get(pk=cashout.pk)
+            if cashout.status in [WalletCashoutRequest.STATUS_SUCCESS, WalletCashoutRequest.STATUS_REJECTED]:
+                return Response({'detail': f'Cashout already {cashout.status.lower()}'}, status=status.HTTP_400_BAD_REQUEST)
+            if cashout.status == WalletCashoutRequest.STATUS_FAILED:
+                return Response({'detail': 'Cashout is failed; create a new request'}, status=status.HTTP_400_BAD_REQUEST)
+            if cashout.status == WalletCashoutRequest.STATUS_PENDING:
+                cashout.status = WalletCashoutRequest.STATUS_PROCESSING
+                if admin_note:
+                    cashout.note = admin_note
+                cashout.save(update_fields=['status', 'note', 'updated_at'])
+
+        try:
+            recipient_code = self._ensure_paystack_recipient(cashout)
+            self._initiate_paystack_transfer(cashout, recipient_code)
+        except Exception as exc:
+            # Mark failed and refund wallet since we deducted upfront
+            with transaction.atomic():
+                cashout = WalletCashoutRequest.objects.select_for_update().select_related('user').get(pk=cashout.pk)
+                cashout.status = WalletCashoutRequest.STATUS_FAILED
+                cashout.processed_at = timezone.now()
+                cashout.note = (cashout.note or '') + (f"\nPaystack error: {exc}" if exc else '')
+                cashout.save(update_fields=['status', 'processed_at', 'note', 'updated_at'])
+
+                wallet, _ = Wallet.objects.get_or_create(user=cashout.user)
+                Wallet.objects.filter(pk=wallet.pk).update(balance=models.F('balance') + cashout.amount)
+
+            return Response({'detail': f'Paystack transfer failed: {exc}'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        # Notify user best-effort
+        try:
+            Alert.objects.create(
+                user=cashout.user,
+                title='Cashout approved',
+                body=f'Your cashout request of GHS {cashout.amount} has been approved and is being processed.',
+                kind='WALLET_CASHOUT_APPROVED',
+            )
+        except Exception:
+            pass
+
+        return Response(WalletCashoutRequestAdminSerializer(cashout).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='reject')
+    @extend_schema(
+        request=AdminCashoutDecisionSerializer,
+        responses={200: WalletCashoutRequestAdminSerializer, 400: None},
+        operation_id='cashout_request_reject',
+        description='Reject a cashout request and refund wallet balance.'
+    )
+    def reject(self, request, pk=None):
+        cashout = self.get_object()
+        decision = AdminCashoutDecisionSerializer(data=request.data)
+        decision.is_valid(raise_exception=False)
+        admin_note = (decision.validated_data.get('note') if hasattr(decision, 'validated_data') else None) or request.data.get('note')
+
+        with transaction.atomic():
+            cashout = WalletCashoutRequest.objects.select_for_update().select_related('user').get(pk=cashout.pk)
+            if cashout.status == WalletCashoutRequest.STATUS_SUCCESS:
+                return Response({'detail': 'Cannot reject a successful cashout'}, status=status.HTTP_400_BAD_REQUEST)
+            if cashout.status == WalletCashoutRequest.STATUS_REJECTED:
+                return Response(WalletCashoutRequestAdminSerializer(cashout).data, status=status.HTTP_200_OK)
+
+            cashout.status = WalletCashoutRequest.STATUS_REJECTED
+            cashout.processed_at = timezone.now()
+            if admin_note:
+                cashout.note = admin_note
+            cashout.save(update_fields=['status', 'processed_at', 'note', 'updated_at'])
+
+            wallet, _ = Wallet.objects.get_or_create(user=cashout.user)
+            Wallet.objects.filter(pk=wallet.pk).update(balance=models.F('balance') + cashout.amount)
+
+        try:
+            Alert.objects.create(
+                user=cashout.user,
+                title='Cashout rejected',
+                body=f'Your cashout request of GHS {cashout.amount} was rejected. The amount has been returned to your wallet.',
+                kind='WALLET_CASHOUT_REJECTED',
+            )
+        except Exception:
+            pass
+
+        return Response(WalletCashoutRequestAdminSerializer(cashout).data, status=status.HTTP_200_OK)

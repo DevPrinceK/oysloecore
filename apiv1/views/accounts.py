@@ -1,5 +1,7 @@
 import random
 import time
+import threading
+from decimal import Decimal
 from uuid import uuid4
 from django.contrib.auth import login
 from knox.models import AuthToken
@@ -14,16 +16,22 @@ from apiv1.serializers import (
     UserUpdateSerializer, AdminToggleUserSerializer, AdminDeleteUserSerializer, AdminVerifyUserSerializer,
     AdminReinstateCouponRedemptionSerializer, AdminReinstateCouponRedemptionResponseSerializer,
     RedeemReferralResponseSerializer, JobApplicationSerializer,
+    WalletCashoutRequestSerializer, WalletCashoutResponseSerializer,
 )
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import OTP, User
+from accounts.models import Wallet, WalletCashoutRequest
 from apiv1.models import JobApplication
 from apiv1.serializers import ChangePasswordSerializer, LoginSerializer, RegisterUserSerializer, ResetPasswordSerializer, UserSerializer
 from notifications.models import Alert
+from notifications import utils as notification_utils
 from apiv1.serializers import AdminCategoryWithSubcategoriesSerializer, AdminVerifyIdSerializer
 from django.db.models import Q
+from django.db import transaction
+from django.db.models import F
+from django.conf import settings
 
 
 class JobApplicationsView(APIView):
@@ -613,6 +621,165 @@ class RedeemReferralAPIView(APIView):
             "wallet_balance": balance,
         }
         return Response(data, status=status.HTTP_200_OK)
+
+
+class WalletCashoutAPIView(APIView):
+    """Cash out wallet funds to user's Mobile Money number.
+
+    Minimum cashout: 500 GHS.
+    Creates a persistent cashout request and deducts wallet balance atomically.
+    """
+
+    permission_classes = (permissions.IsAuthenticated,)
+    serializer_class = WalletCashoutRequestSerializer
+    MIN_CASHOUT = Decimal('500.00')
+    SUPPORTED_MOMO_CODES = {'mtn', 'atl', 'vod'}
+
+    @staticmethod
+    def _normalize_momo_network(value: str) -> str:
+        return ''.join(ch for ch in (value or '').strip().lower() if ch.isalnum())
+
+    def _resolve_momo_network_code(self, raw_network: str) -> str:
+        raw = (raw_network or '').strip()
+        if not raw:
+            return ''
+
+        normalized = self._normalize_momo_network(raw)
+        mapping = getattr(settings, 'PAYSTACK_MOMO_BANK_CODE_MAP', None)
+        mapped = None
+        if isinstance(mapping, dict) and mapping:
+            mapped = mapping.get(normalized)
+
+        code = (mapped or raw).strip().lower()
+        # Keep only short codes for storage
+        if code not in self.SUPPORTED_MOMO_CODES:
+            code = self._normalize_momo_network(code)
+        if code not in self.SUPPORTED_MOMO_CODES:
+            raise ValueError('Unsupported momo_network')
+        return code
+
+    @extend_schema(
+        request=WalletCashoutRequestSerializer,
+        responses={200: WalletCashoutResponseSerializer, 400: GenericMessageSerializer, 403: GenericMessageSerializer},
+        operation_id='wallet_cashout',
+        description='Cash out wallet funds to Mobile Money. Minimum amount is 500 GHS.'
+    )
+    def post(self, request, *args, **kwargs):
+        user = request.user
+
+        serializer = self.serializer_class(data=request.data)
+        if not serializer.is_valid():
+            return Response({'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        amount = serializer.validated_data['amount']
+        try:
+            amount_dec = Decimal(str(amount))
+        except Exception:
+            return Response({'message': 'Invalid amount'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if amount_dec < self.MIN_CASHOUT:
+            return Response({'message': 'Minimum cashout amount is 500 cedis.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Resolve destination details (allow optional overrides, and persist to user profile)
+        momo_number = (serializer.validated_data.get('momo_number') or '').strip() or (getattr(user, 'account_number', None) or '').strip()
+        momo_network = (serializer.validated_data.get('momo_network') or '').strip() or (getattr(user, 'mobile_network', None) or '').strip()
+        momo_account_name = (serializer.validated_data.get('momo_account_name') or '').strip() or (getattr(user, 'account_name', None) or '').strip()
+
+        if not momo_number or not momo_network:
+            return Response({'message': 'Mobile money details are missing (account_number/mobile_network).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            momo_network = self._resolve_momo_network_code(momo_network)
+        except Exception:
+            return Response(
+                {
+                    'message': 'Unsupported momo_network. Supported values are: mtn, atl, vod.'
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Persist overrides back to user for future cashouts
+        try:
+            updated_fields = []
+            if momo_number and getattr(user, 'account_number', None) != momo_number:
+                user.account_number = momo_number
+                updated_fields.append('account_number')
+            if momo_network and getattr(user, 'mobile_network', None) != momo_network:
+                user.mobile_network = momo_network
+                updated_fields.append('mobile_network')
+            if momo_account_name and getattr(user, 'account_name', None) != momo_account_name:
+                user.account_name = momo_account_name
+                updated_fields.append('account_name')
+            if updated_fields:
+                updated_fields.append('updated_at') if hasattr(user, 'updated_at') else None
+                user.save(update_fields=[f for f in updated_fields if f])
+        except Exception:
+            pass
+
+        # Perform atomic wallet deduction + create cashout request
+        with transaction.atomic():
+            wallet, _ = Wallet.objects.get_or_create(user=user)
+            wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
+
+            if wallet.balance is None:
+                wallet.balance = Decimal('0.00')
+
+            if Decimal(str(wallet.balance)) < amount_dec:
+                return Response({'message': 'Insufficient wallet balance.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            cashout = WalletCashoutRequest.objects.create(
+                user=user,
+                amount=amount_dec,
+                momo_number=momo_number,
+                momo_network=momo_network,
+                momo_account_name=momo_account_name or None,
+                status=WalletCashoutRequest.STATUS_PENDING,
+            )
+
+            Wallet.objects.filter(pk=wallet.pk).update(balance=F('balance') - amount_dec)
+
+        # Best-effort notify user
+        try:
+            Alert.objects.create(
+                user=user,
+                title='Cashout requested',
+                body=f'Your cashout request of GHS {amount_dec} to {momo_network} {momo_number} has been received and is being processed.',
+                kind='WALLET_CASHOUT_REQUESTED',
+            )
+        except Exception:
+            pass
+
+        try:
+            send_sms = getattr(notification_utils, 'send_sms', None)
+            phone = getattr(user, 'preferred_notification_phone', None) or getattr(user, 'phone', None)
+            if callable(send_sms) and phone:
+                msg = f"Oysloe: Cashout request received. Amount: GHS {amount_dec}. Destination: {momo_network} {momo_number}."
+
+                def _sms():
+                    try:
+                        send_sms(message=msg, recipients=[str(phone)])
+                    except Exception:
+                        pass
+
+                threading.Thread(target=_sms, daemon=True).start()
+        except Exception:
+            pass
+
+        # Return updated balance
+        wallet = getattr(user, 'wallet', None)
+        balance = wallet.balance if wallet else 0
+        return Response(
+            {
+                'status': 'ok',
+                'cashout_id': cashout.id,
+                'amount': amount_dec,
+                'momo_number': momo_number,
+                'momo_network': momo_network,
+                'momo_account_name': momo_account_name,
+                'wallet_balance': balance,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class AdminVerifyUserAPIView(APIView):

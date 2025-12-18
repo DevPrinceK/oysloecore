@@ -183,6 +183,34 @@ PAYSTACK_SECRET_KEY = os.getenv('PAYSTACK_SECRET_KEY', '')
 PAYSTACK_PUBLIC_KEY = os.getenv('PAYSTACK_PUBLIC_KEY', '')
 PAYSTACK_BASE_URL = os.getenv('PAYSTACK_BASE_URL', 'https://api.paystack.co')
 
+# Paystack Transfers (Mobile Money) bank_code mapping
+#
+# For Ghana MoMo, Paystack uses short codes like:
+# - MTN: "mtn"
+# - ATMoney & Airtel Money: "atl"
+# - Vodafone: "vod"
+#
+# Keys are normalized (lowercased, alphanumeric only) to support common user inputs.
+PAYSTACK_MOMO_BANK_CODE_MAP = {
+    # MTN
+    'mtn': 'mtn',
+    'mtnmomo': 'mtn',
+    'mtnmobilemoney': 'mtn',
+
+    # ATMoney & Airtel Money
+    'atl': 'atl',
+    'atmoney': 'atl',
+    'airtelmoney': 'atl',
+    'airteltigo': 'atl',
+    'tigo': 'atl',
+    'tigocash': 'atl',
+
+    # Vodafone
+    'vod': 'vod',
+    'vodafone': 'vod',
+    'vodafonemoney': 'vod',
+}
+
 
 # email settings
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'

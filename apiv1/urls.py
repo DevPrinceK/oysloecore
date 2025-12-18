@@ -27,6 +27,7 @@ urlpatterns += [
     path('resetpassword/', views.ResetPasswordAPIView.as_view(), name='resetpassword'),
     path('userpreferences/', views.UserPreferenceAPIView.as_view(), name='userpreferences'),
     path('redeem-points/', views.RedeemReferralAPIView.as_view(), name='redeem_points'),
+    path('wallet/cashout/', views.WalletCashoutAPIView.as_view(), name='wallet_cashout'),
     path('admin/verifyuser/', views.AdminVerifyUserAPIView.as_view(), name='admin_verify_user'),
     path('admin/verify-user-id/', views.AdminVerifyUserIdAPIView.as_view(), name='admin_verify_user_id'),
     path('admin/users/', views.AdminListUsersAPIView.as_view(), name='admin_users'),
@@ -62,6 +63,8 @@ from .viewsets import AlertViewSet
 router.register('alerts', AlertViewSet, basename='alert')
 from .viewsets import ProductReportViewSet
 router.register('product-reports', ProductReportViewSet, basename='product-report')
+from .viewsets import WalletCashoutRequestViewSet
+router.register('cashout-requests', WalletCashoutRequestViewSet, basename='cashout-request')
 router.register('feedback', FeedbackViewSet, basename='feedback')
 router.register('subscriptions', SubscriptionViewSet, basename='subscription')
 router.register('user-subscriptions', UserSubscriptionViewSet, basename='user-subscription')

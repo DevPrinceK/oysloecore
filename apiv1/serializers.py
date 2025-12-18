@@ -1,7 +1,7 @@
 from django.contrib.auth import authenticate
 from rest_framework import serializers
 
-from accounts.models import User
+from accounts.models import User, WalletCashoutRequest
 from apiv1.models import (
     ChatRoom,
     Message,
@@ -577,6 +577,46 @@ class RedeemReferralResponseSerializer(serializers.Serializer):
     cash_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
     remaining_points = serializers.IntegerField()
     wallet_balance = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+
+class WalletCashoutRequestSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    momo_number = serializers.CharField(required=False, allow_blank=True)
+    momo_network = serializers.CharField(required=False, allow_blank=True)
+    momo_account_name = serializers.CharField(required=False, allow_blank=True)
+
+
+class WalletCashoutResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    cashout_id = serializers.IntegerField()
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    momo_number = serializers.CharField()
+    momo_network = serializers.CharField()
+    momo_account_name = serializers.CharField(required=False, allow_blank=True)
+    wallet_balance = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+
+class WalletCashoutRequestUserMiniSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'phone', 'name']
+
+
+class WalletCashoutRequestAdminSerializer(serializers.ModelSerializer):
+    user = WalletCashoutRequestUserMiniSerializer(read_only=True)
+
+    class Meta:
+        model = WalletCashoutRequest
+        fields = [
+            'id', 'user', 'amount', 'momo_number', 'momo_network', 'momo_account_name',
+            'status', 'note', 'provider', 'provider_recipient_code', 'provider_transfer_code',
+            'provider_reference', 'processed_at', 'created_at', 'updated_at'
+        ]
+        read_only_fields = fields
+
+
+class AdminCashoutDecisionSerializer(serializers.Serializer):
+    note = serializers.CharField(required=False, allow_blank=True)
 
 # --- Admin actions ---
 class AdminVerifyUserSerializer(serializers.Serializer):

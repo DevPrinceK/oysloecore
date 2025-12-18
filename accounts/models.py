@@ -216,6 +216,51 @@ class Wallet(TimeStampedModel):
         return f"{self.user.name}'s Wallet"
 
 
+class WalletCashoutRequest(TimeStampedModel):
+    """Tracks wallet cashout requests to Mobile Money.
+
+    This persists the request and allows asynchronous/manual processing.
+    """
+
+    STATUS_PENDING = 'PENDING'
+    STATUS_PROCESSING = 'PROCESSING'
+    STATUS_SUCCESS = 'SUCCESS'
+    STATUS_FAILED = 'FAILED'
+    STATUS_REJECTED = 'REJECTED'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_PROCESSING, 'Processing'),
+        (STATUS_SUCCESS, 'Success'),
+        (STATUS_FAILED, 'Failed'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='cashout_requests')
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    momo_number = models.CharField(max_length=50)
+    momo_network = models.CharField(max_length=50)
+    momo_account_name = models.CharField(max_length=100, blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    note = models.TextField(blank=True, null=True)
+    processed_at = models.DateTimeField(blank=True, null=True)
+
+    # Provider tracking (e.g., Paystack Transfers)
+    provider = models.CharField(max_length=50, blank=True, null=True)
+    provider_recipient_code = models.CharField(max_length=100, blank=True, null=True)
+    provider_transfer_code = models.CharField(max_length=100, blank=True, null=True)
+    provider_reference = models.CharField(max_length=150, blank=True, null=True)
+    raw_response = models.JSONField(blank=True, null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['user', 'status'], name='accounts_wcr_user_status_idx'),
+            models.Index(fields=['created_at'], name='accounts_wcr_created_at_idx'),
+        ]
+
+    def __str__(self):
+        return f"Cashout {self.amount} for {self.user.email} ({self.status})"
+
+
 class OTP(TimeStampedModel):
     '''One Time Password model'''
     phone = models.CharField(max_length=10)
