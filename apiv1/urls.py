@@ -30,6 +30,7 @@ urlpatterns += [
     path('admin/verifyuser/', views.AdminVerifyUserAPIView.as_view(), name='admin_verify_user'),
     path('admin/verify-user-id/', views.AdminVerifyUserIdAPIView.as_view(), name='admin_verify_user_id'),
     path('admin/users/', views.AdminListUsersAPIView.as_view(), name='admin_users'),
+    path('admin/reinstate-coupon-redemption/', views.AdminReinstateCouponRedemptionAPIView.as_view(), name='admin_reinstate_coupon_redemption'),
     path('admin/categories/', views.AdminListCategoriesAPIView.as_view(), name='admin_categories'),
     path('job-applications/', views.JobApplicationsView.as_view(), name='job_applications'),
 ]

@@ -12,6 +12,7 @@ from apiv1.serializers import (
     VerifyOTPPostRequestSerializer, LoginResponseSerializer,
     RegisterUserResponseSerializer, GenericMessageSerializer, SimpleStatusSerializer,
     UserUpdateSerializer, AdminToggleUserSerializer, AdminDeleteUserSerializer, AdminVerifyUserSerializer,
+    AdminReinstateCouponRedemptionSerializer, AdminReinstateCouponRedemptionResponseSerializer,
     RedeemReferralResponseSerializer, JobApplicationSerializer,
 )
 from rest_framework.response import Response
@@ -235,6 +236,51 @@ class AdminListUsersAPIView(APIView):
             qs = qs.filter(Q(name__icontains=q) | Q(email__icontains=q) | Q(phone__icontains=q))
         qs = qs.order_by('-created_at')
         return Response(UserSerializer(qs, many=True).data)
+
+
+class AdminReinstateCouponRedemptionAPIView(APIView):
+    """Admin-only: reinstate coupon redemption for users.
+
+    Resets `wrong_coupon_attempts` to 0 and sets `can_redeem_coupon` to True.
+    """
+
+    permission_classes = (permissions.IsAdminUser,)
+
+    @extend_schema(
+        request=AdminReinstateCouponRedemptionSerializer,
+        responses={200: AdminReinstateCouponRedemptionResponseSerializer, 400: GenericMessageSerializer},
+        operation_id='admin_reinstate_coupon_redemption',
+        description='Admin-only: unlock coupon redemption for one or many users.'
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = AdminReinstateCouponRedemptionSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        user_ids = serializer.validated_data['user_ids']
+        # De-dupe but preserve order
+        seen = set()
+        user_ids = [i for i in user_ids if not (i in seen or seen.add(i))]
+
+        qs = User.objects.filter(id__in=user_ids)
+        found_ids = set(qs.values_list('id', flat=True))
+        missing_ids = [i for i in user_ids if i not in found_ids]
+
+        updated = 0
+        try:
+            updated = qs.update(wrong_coupon_attempts=0, can_redeem_coupon=True)
+        except Exception:
+            updated = 0
+
+        return Response(
+            {
+                'status': 'ok',
+                'requested_user_ids': user_ids,
+                'missing_user_ids': missing_ids,
+                'updated_users': updated,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class AdminListCategoriesAPIView(APIView):

@@ -551,6 +551,23 @@ class AdminDeleteUserSerializer(serializers.Serializer):
     id = serializers.IntegerField()
 
 
+class AdminReinstateCouponRedemptionSerializer(serializers.Serializer):
+    """Admin request to unlock coupon redemption for users."""
+
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        help_text='List of user IDs to reinstate coupon redemption for.'
+    )
+
+
+class AdminReinstateCouponRedemptionResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    requested_user_ids = serializers.ListField(child=serializers.IntegerField(min_value=1))
+    missing_user_ids = serializers.ListField(child=serializers.IntegerField(min_value=1))
+    updated_users = serializers.IntegerField(min_value=0)
+
+
 class ChatroomIdResponseSerializer(serializers.Serializer):
     chatroom_id = serializers.CharField()
 

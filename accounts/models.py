@@ -74,6 +74,10 @@ class User(AbstractBaseUser, PermissionsMixin, TimeStampedModel):
     total_ads = models.PositiveIntegerField(default=0)
     total_taken_ads = models.PositiveIntegerField(default=0)
 
+    # Coupon redemption guard
+    wrong_coupon_attempts = models.PositiveSmallIntegerField(default=0)
+    can_redeem_coupon = models.BooleanField(default=True)
+
     # preferences
     preferred_notification_email = models.EmailField(max_length=50, blank=True, null=True)
     preferred_notification_phone = models.CharField(max_length=15, blank=True, null=True)

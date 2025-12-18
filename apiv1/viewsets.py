@@ -887,18 +887,53 @@ class CouponViewSet(viewsets.ModelViewSet):
         from apiv1.serializers import CouponSerializer  # local import to avoid circular
         return CouponSerializer
 
-    @action(detail=True, methods=['post'])
-    def expire(self, request, pk=None):
-        coupon = self.get_object()
-        coupon.is_active = False
-        coupon.valid_until = coupon.valid_until or timezone.now()
-        coupon.save(update_fields=['is_active', 'valid_until', 'updated_at'])
-        return Response({'status': 'expired'})
+    def _coupon_guard_check(self, user):
+        """Return a Response if user is locked out from redeeming coupons."""
+        try:
+            if hasattr(user, 'can_redeem_coupon') and hasattr(user, 'wrong_coupon_attempts'):
+                if not getattr(user, 'can_redeem_coupon', True):
+                    remaining = 0
+                    try:
+                        remaining = max(0, 3 - int(getattr(user, 'wrong_coupon_attempts', 0) or 0))
+                    except Exception:
+                        remaining = 0
+                    return Response(
+                        {
+                            'detail': 'Coupon redemption temporarily disabled due to too many invalid attempts.',
+                            'max_attempts': 3,
+                            'remaining_attempts': remaining,
+                        },
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+        except Exception:
+            return None
+        return None
 
-    @action(detail=True, methods=['post'])
-    def redeem(self, request, pk=None):
-        coupon = self.get_object()
-        user = request.user
+    def _coupon_guard_increment_invalid_attempt(self, user):
+        """Increment invalid attempt count and lock user after 3 tries."""
+        try:
+            UserModel = user.__class__
+            UserModel.objects.filter(pk=user.pk).update(
+                wrong_coupon_attempts=models.F('wrong_coupon_attempts') + 1,
+            )
+            # Refresh and lock if threshold reached
+            user.refresh_from_db(fields=['wrong_coupon_attempts', 'can_redeem_coupon'])
+            if int(getattr(user, 'wrong_coupon_attempts', 0) or 0) >= 3 and getattr(user, 'can_redeem_coupon', True):
+                UserModel.objects.filter(pk=user.pk).update(can_redeem_coupon=False)
+                user.can_redeem_coupon = False
+        except Exception:
+            pass
+
+    def _coupon_guard_reset_on_success(self, user):
+        """Reset invalid attempt counter after a successful redemption."""
+        try:
+            if hasattr(user, 'wrong_coupon_attempts') and hasattr(user, 'can_redeem_coupon'):
+                user.__class__.objects.filter(pk=user.pk).update(wrong_coupon_attempts=0, can_redeem_coupon=True)
+        except Exception:
+            pass
+
+    def _redeem_coupon_for_user(self, coupon, user):
+        """Shared redemption logic used by multiple endpoints."""
         if not coupon.is_active:
             return Response({'detail': 'Coupon is not active'}, status=status.HTTP_400_BAD_REQUEST)
         if not coupon.is_within_validity():
@@ -921,8 +956,75 @@ class CouponViewSet(viewsets.ModelViewSet):
             CouponRedemption.objects.create(coupon=coupon, user=user)
 
         coupon.refresh_from_db()
+        self._coupon_guard_reset_on_success(user)
         from apiv1.serializers import CouponSerializer
         return Response({'coupon': CouponSerializer(coupon).data, 'status': 'redeemed'})
+
+    @action(detail=True, methods=['post'])
+    def expire(self, request, pk=None):
+        coupon = self.get_object()
+        coupon.is_active = False
+        coupon.valid_until = coupon.valid_until or timezone.now()
+        coupon.save(update_fields=['is_active', 'valid_until', 'updated_at'])
+        return Response({'status': 'expired'})
+
+    @action(detail=True, methods=['post'])
+    def redeem(self, request, pk=None):
+        coupon = self.get_object()
+        user = request.user
+
+        guard_resp = self._coupon_guard_check(user)
+        if guard_resp is not None:
+            return guard_resp
+
+        return self._redeem_coupon_for_user(coupon, user)
+
+    @action(detail=False, methods=['post'], url_path='redeem-by-code')
+    def redeem_by_code(self, request):
+        """Redeem a coupon by providing a coupon code.
+
+        This endpoint enforces the invalid-attempt guard (max 3 invalid codes).
+        Body: {"code": "WELCOME10"}
+        """
+        user = request.user
+        guard_resp = self._coupon_guard_check(user)
+        if guard_resp is not None:
+            return guard_resp
+
+        code = (request.data.get('code') or '').strip()
+        if not code:
+            return Response({'detail': 'code is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        coupon = Coupon.objects.filter(code__iexact=code).first()
+        if not coupon:
+            # Invalid code attempt
+            self._coupon_guard_increment_invalid_attempt(user)
+            # Re-check state after increment
+            try:
+                user.refresh_from_db(fields=['wrong_coupon_attempts', 'can_redeem_coupon'])
+                remaining = max(0, 3 - int(getattr(user, 'wrong_coupon_attempts', 0) or 0))
+            except Exception:
+                remaining = None
+            if hasattr(user, 'can_redeem_coupon') and not getattr(user, 'can_redeem_coupon', True):
+                return Response(
+                    {
+                        'detail': 'Too many invalid coupon attempts. Coupon redemption disabled.',
+                        'max_attempts': 3,
+                        'remaining_attempts': 0,
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            return Response(
+                {
+                    'detail': 'Invalid coupon code',
+                    'max_attempts': 3,
+                    'remaining_attempts': remaining,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Valid code: proceed with standard redemption checks
+        return self._redeem_coupon_for_user(coupon, user)
 
 
 class LocationViewSet(viewsets.ModelViewSet):
