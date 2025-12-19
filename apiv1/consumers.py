@@ -9,6 +9,14 @@ logger = logging.getLogger(__name__)
 class NewChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         logger.info(f"Attempting to connect: {self.scope}")
+        self.user = await self.get_user_from_token(self.scope['query_string'])
+
+        if not self.user:
+            await self.close()
+            return
+
+        self.scope['user'] = self.user
+
         # The URL param is named `room_name`, but clients often pass `ChatRoom.room_id`.
         # Resolve by either room_id or name to support group chatrooms where they differ.
         self.room_identifier = self.scope['url_route']['kwargs']['room_name']
@@ -22,23 +30,18 @@ class NewChatConsumer(AsyncWebsocketConsumer):
         self.room_name = self.room.name
         # Always group by room_id so all clients converge on the same channel group.
         self.room_group_name = f'chat_{self.room_id}'
-        self.user = await self.get_user_from_token(self.scope['query_string'])
 
-        if self.user:
-            self.scope['user'] = self.user
-            await self.channel_layer.group_add(
-                self.room_group_name,
-                self.channel_name
-            )
-            await self.accept()
-            # Send chat history on connect
-            await self.send_chat_history()
-            # Mark all messages as read for the user
-            await self.mark_all_messages_as_read()
-            # Notify all members' unread count groups (including self) after marking as read
-            await self.notify_unread_count_groups()
-        else:
-            await self.close()
+        await self.channel_layer.group_add(
+            self.room_group_name,
+            self.channel_name
+        )
+        await self.accept()
+        # Send chat history on connect
+        await self.send_chat_history()
+        # Mark all messages as read for the user
+        await self.mark_all_messages_as_read()
+        # Notify all members' unread count groups (including self) after marking as read
+        await self.notify_unread_count_groups()
 
     @database_sync_to_async
     def get_user_from_token(self, query_string):
@@ -64,10 +67,22 @@ class NewChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def get_room(self, identifier):
+        from urllib.parse import unquote
+
+        if identifier is None:
+            return None
+
+        normalized = unquote(str(identifier)).strip().rstrip('/')
+        if not normalized:
+            return None
+
         # Try room_id first (what the REST APIs typically return), then name.
+        # Add iexact fallbacks to avoid case/encoding mismatches.
         return (
-            ChatRoom.objects.filter(room_id=identifier).first()
-            or ChatRoom.objects.filter(name=identifier).first()
+            ChatRoom.objects.filter(room_id=normalized).first()
+            or ChatRoom.objects.filter(name=normalized).first()
+            or ChatRoom.objects.filter(room_id__iexact=normalized).first()
+            or ChatRoom.objects.filter(name__iexact=normalized).first()
         )
 
     async def disconnect(self, close_code):
@@ -471,6 +486,7 @@ class ChatRoomsConsumer(AsyncWebsocketConsumer):
         for room in chatrooms:
             data = {
                 'id': room.id,
+                'room_id': room.room_id,
                 'name': room.name,
                 'is_group': room.is_group,
                 'unread': room.get_total_unread_messages(self.user),
