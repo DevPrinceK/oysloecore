@@ -4,6 +4,9 @@ db.sqlite3
 schema.yaml
 deployment-config/
 
+# Runtime scratch (e.g., materialized credentials)
+.runtime/
+
 # Firebase / FCM service-account keys
 notifications/*.json
 

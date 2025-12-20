@@ -92,7 +92,9 @@ WSGI_APPLICATION = 'oysloecore.wsgi.application'
 
 
 # channel layer config
-if os.getenv('ENVIRONMENT') == 'development':
+environment = (os.getenv('ENVIRONMENT') or 'development').lower()
+
+if environment == 'development':
     # Use in-memory channel layer for development
     CHANNEL_LAYERS = {
         'default': {
@@ -100,15 +102,21 @@ if os.getenv('ENVIRONMENT') == 'development':
         },
     }
 else:
+    redis_host = os.getenv('REDIS_HOST', '127.0.0.1')
+    try:
+        redis_port = int(os.getenv('REDIS_PORT', '6379'))
+    except ValueError:
+        redis_port = 6379
+
     CHANNEL_LAYERS = {
         'default': {
             # Use 'channels_redis' for production
             'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            "hosts" : [('127.0.0.1', 6379)],
-            }
-    },
-}
+            'CONFIG': {
+                'hosts': [(redis_host, redis_port)],
+            },
+        },
+    }
 
 
 

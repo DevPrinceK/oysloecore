@@ -2,7 +2,7 @@ import array
 import logging
 import os
 
-from django.conf import settings
+from django.conf import settings as dj_settings
 from pyfcm import FCMNotification
 
 from .models import FCMDevice
@@ -17,9 +17,38 @@ def _get_push_service() -> FCMNotification | None:
     if _push_service is not None:
         return _push_service
 
+    # Preferred: keep the whole service-account JSON in an env var.
+    # This avoids storing key files on disk/repo. We materialize it to a runtime-only path.
+    service_account_json = os.getenv('FCM_SERVICE_ACCOUNT_JSON')
+
     service_account_file = os.getenv('FCM_SERVICE_ACCOUNT_FILE')
+    if service_account_json:
+        try:
+            decoded = service_account_json.strip()
+        except Exception:
+            logger.exception('Invalid FCM_SERVICE_ACCOUNT_JSON')
+            return None
+
+        runtime_dir = dj_settings.BASE_DIR / '.runtime'
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        service_account_file = str(runtime_dir / 'fcm-service-account.json')
+        try:
+            # Only write if missing or changed.
+            if not os.path.exists(service_account_file) or open(service_account_file, 'r', encoding='utf-8').read() != decoded:
+                with open(service_account_file, 'w', encoding='utf-8') as f:
+                    f.write(decoded)
+        except Exception:
+            logger.exception('Failed to write runtime FCM service account file')
+            return None
+
     if not service_account_file:
-        service_account_file = str(settings.BASE_DIR / 'notifications' / 'oysloemobile.json')
+        # Legacy fallback (discouraged): repo-relative key file.
+        # Only allow this in development to reduce the chance of leaking keys in prod.
+        if (os.getenv('ENVIRONMENT') or '').lower() == 'development':
+            service_account_file = str(dj_settings.BASE_DIR / 'notifications' / 'oysloemobile.json')
+        else:
+            logger.warning('FCM not configured: set FCM_SERVICE_ACCOUNT_JSON or FCM_SERVICE_ACCOUNT_FILE')
+            return None
 
     project_id = os.getenv('FCM_PROJECT_ID') or 'oysloemobile'
 
@@ -85,12 +114,11 @@ def send_mail(receipient: list, subject: str, message: str) -> None:
 
 import requests
 
-from oysloecore import settings
 
-
-def send_sms(message: str, recipients: array.array, sender: str = settings.SENDER_ID):
+def send_sms(message: str, recipients: array.array, sender: str | None = None):
     '''Sends an SMS to the specified recipients'''
-    header = {"api-key": settings.ARKESEL_API_KEY, 'Content-Type': 'application/json',
+    sender = sender or getattr(dj_settings, 'SENDER_ID', None)
+    header = {"api-key": getattr(dj_settings, 'ARKESEL_API_KEY', ''), 'Content-Type': 'application/json',
               'Accept': 'application/json'}
     SEND_SMS_URL = "https://sms.arkesel.com/api/v2/sms/send"
     payload = {
