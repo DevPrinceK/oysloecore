@@ -32,6 +32,7 @@ class Message(TimeStampedModel):
     room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='messages')
     sender = models.ForeignKey(User, on_delete=models.CASCADE)
     content = models.TextField()
+    is_media = models.BooleanField(default=False)
     is_read = models.BooleanField(default=False)
     class Meta:
         ordering = ['created_at']

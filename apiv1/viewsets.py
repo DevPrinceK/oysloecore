@@ -715,9 +715,14 @@ class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
     def send(self, request, pk=None):
         room = self.get_object()
         content = request.data.get('message') or request.data.get('content')
+        raw_is_media = request.data.get('is_media', request.data.get('isMedia', False))
+        if isinstance(raw_is_media, str):
+            is_media = raw_is_media.strip().lower() in {'1', 'true', 't', 'yes', 'y', 'on'}
+        else:
+            is_media = bool(raw_is_media)
         if not content:
             return Response({'detail': 'message is required'}, status=status.HTTP_400_BAD_REQUEST)
-        msg = Message.objects.create(room=room, sender=request.user, content=content)
+        msg = Message.objects.create(room=room, sender=request.user, content=content, is_media=is_media)
         return Response(MessageSerializer(msg).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'], url_path='mark-read')

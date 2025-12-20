@@ -326,7 +326,7 @@ class MessageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Message
-        fields = ["id", "room", "sender", "content", "created_at", "is_read"]
+        fields = ["id", "room", "sender", 'is_media', "content", "created_at", "is_read"]
 
 
 class ChatRoomSerializer(serializers.ModelSerializer):

@@ -6,6 +6,18 @@ from .models import ChatRoom
 
 logger = logging.getLogger(__name__)
 
+
+def _coerce_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "t", "yes", "y", "on"}
+    return bool(value)
+
 class NewChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         logger.info(f"Attempting to connect: {self.scope}")
@@ -94,8 +106,9 @@ class NewChatConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, text_data):
         data = json.loads(text_data)
-        message = data.get('message')
+        message = data.get('message') or data.get('content')
         message_type = data.get('type')  # Optional
+        is_media = _coerce_bool(data.get('is_media', data.get('isMedia', False)))
 
         if message_type == 'typing':
             await self.channel_layer.group_send(
@@ -117,16 +130,18 @@ class NewChatConsumer(AsyncWebsocketConsumer):
             )
         elif message:  # Normal chat message
             # Save the message to the database
-            await self.save_message(self.room, self.user, message)
-            from datetime import datetime
-            timestamp = datetime.utcnow().isoformat()
+            saved = await self.save_message(self.room, self.user, message, is_media=is_media)
+            timestamp = (saved or {}).get('timestamp', None)
+            message_id = (saved or {}).get('id', None)
             # Always broadcast to the room group. The `recipient` field (if present)
             # is a client concern; server delivery uses the room membership.
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
                     'type': 'chat_message',
+                    'id': message_id,
                     'message': message,
+                    'is_media': is_media,
                     'username': self.user.name,
                     'email': self.user.email,
                     'timestamp': timestamp
@@ -159,17 +174,29 @@ class NewChatConsumer(AsyncWebsocketConsumer):
             )
 
     @database_sync_to_async
-    def save_message(self, room, sender, content):
+    def save_message(self, room, sender, content, is_media: bool = False):
         from .models import Message
         if not room:
             return
-        Message.objects.create(room=room, sender=sender, content=content)
+        msg = Message.objects.create(
+            room=room,
+            sender=sender,
+            content=content,
+            is_media=bool(is_media),
+        )
+        return {
+            'id': msg.id,
+            'timestamp': msg.created_at.isoformat(),
+            'is_media': msg.is_media,
+        }
 
     async def chat_message(self, event):
         await self.send(text_data=json.dumps({
+            'id': event.get('id', None),
             'username': event['username'],
             'email': event.get('email', None),
             'message': event['message'],
+            'is_media': event.get('is_media', False),
             'timestamp': event.get('timestamp', None)
         }))
 
@@ -197,6 +224,8 @@ class NewChatConsumer(AsyncWebsocketConsumer):
                 'sender': msg.sender.name,
                 'email': msg.sender.email,
                 'content': msg.content,
+                'is_media': msg.is_media,
+                'is_read': msg.is_read,
                 'timestamp': msg.created_at.isoformat()
             }
             for msg in messages
@@ -256,8 +285,9 @@ class TemChatConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, text_data):
         data = json.loads(text_data)
-        message = data.get('message')
+        message = data.get('message') or data.get('content')
         message_type = data.get('type')
+        is_media = _coerce_bool(data.get('is_media', data.get('isMedia', False)))
 
         if message_type == 'typing':
             await self.channel_layer.group_send(
@@ -282,15 +312,17 @@ class TemChatConsumer(AsyncWebsocketConsumer):
 
         if message:
             # save and broadcast to room
-            await self.save_message(self.room, self.user, message)
-            from datetime import datetime
-            timestamp = datetime.utcnow().isoformat()
+            saved = await self.save_message(self.room, self.user, message, is_media=is_media)
+            timestamp = (saved or {}).get('timestamp', None)
+            message_id = (saved or {}).get('id', None)
 
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
                     'type': 'chat_message',
+                    'id': message_id,
                     'message': message,
+                    'is_media': is_media,
                     'username': self.user.name,
                     'email': self.user.email,
                     'timestamp': timestamp,
@@ -378,11 +410,21 @@ class TemChatConsumer(AsyncWebsocketConsumer):
                 return None
 
     @database_sync_to_async
-    def save_message(self, room, sender, content):
+    def save_message(self, room, sender, content, is_media: bool = False):
         from .models import Message
         if not room:
             return
-        Message.objects.create(room=room, sender=sender, content=content)
+        msg = Message.objects.create(
+            room=room,
+            sender=sender,
+            content=content,
+            is_media=bool(is_media),
+        )
+        return {
+            'id': msg.id,
+            'timestamp': msg.created_at.isoformat(),
+            'is_media': msg.is_media,
+        }
 
     @database_sync_to_async
     def get_chat_history(self):
@@ -396,6 +438,8 @@ class TemChatConsumer(AsyncWebsocketConsumer):
                 'sender': msg.sender.name,
                 'email': msg.sender.email,
                 'content': msg.content,
+                'is_media': msg.is_media,
+                'is_read': msg.is_read,
                 'timestamp': msg.created_at.isoformat()
             }
             for msg in messages
@@ -514,6 +558,7 @@ class ChatRoomsConsumer(AsyncWebsocketConsumer):
             if last_message:
                 data['last_message'] = {
                     'text': last_message.content,
+                    'is_media': last_message.is_media,
                     'created_at': last_message.created_at.isoformat(),
                     'sender': last_message.sender.name,
                 }
