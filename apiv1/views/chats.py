@@ -9,7 +9,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter
 
 from apiv1.serializers import ChatroomIdResponseSerializer
 from accounts.models import User
-from apiv1.models import ChatRoom
+from apiv1.models import ChatRoom, Product
 
 
 class GetChatroomIdAPI(APIView):
@@ -17,7 +17,16 @@ class GetChatroomIdAPI(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     @extend_schema(
-        parameters=[OpenApiParameter(name='email', type=str, location=OpenApiParameter.QUERY, required=True)],
+        parameters=[
+            OpenApiParameter(name='email', type=str, location=OpenApiParameter.QUERY, required=True),
+            OpenApiParameter(
+                name='product_id',
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description='Product identifier (numeric id or pid_...) to associate an ad with this chatroom.',
+            ),
+        ],
         responses={200: ChatroomIdResponseSerializer, 404: ChatroomIdResponseSerializer},
         operation_id='get_chatroom_id'
     )
@@ -28,6 +37,7 @@ class GetChatroomIdAPI(APIView):
         """
         current_user = request.user
         other_user_email = request.query_params.get('email')
+        product_identifier = request.query_params.get('product_id')
 
         if not other_user_email:
             return Response(
@@ -53,15 +63,42 @@ class GetChatroomIdAPI(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Try to find an existing private chatroom containing both users
-        chatroom = (
+        product = None
+        if product_identifier:
+            # Support both integer PK and pid string.
+            try:
+                if str(product_identifier).isdigit():
+                    product = Product.objects.filter(id=int(product_identifier)).first()
+                else:
+                    product = Product.objects.filter(pid=str(product_identifier)).first()
+            except Exception:
+                product = None
+
+            if not product:
+                return Response(
+                    {"error": "Product not found"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        # Try to find an existing private chatroom containing both users (and matching product if provided)
+        qs = (
             ChatRoom.objects
             .filter(is_group=False, members=current_user)
             .filter(members=other_user)
-            .first()
         )
+        if product:
+            qs = qs.filter(product=product)
+        chatroom = qs.first()
         if chatroom:
-            return Response({"chatroom_id": chatroom.room_id}, status=status.HTTP_200_OK)
+            return Response(
+                {
+                    "chatroom_id": chatroom.room_id,
+                    "product_id": getattr(chatroom.product, 'pid', '') if getattr(chatroom, 'product', None) else '',
+                    "ad_name": getattr(chatroom, 'ad_name', '') or '',
+                    "ad_image": getattr(chatroom, 'ad_image_url', '') or '',
+                },
+                status=status.HTTP_200_OK,
+            )
 
         # Create a new private chatroom with a compact unique name, mirroring the consumer logic
         min_id = min(current_user.id, other_user.id)
@@ -72,9 +109,17 @@ class GetChatroomIdAPI(APIView):
             rand = "".join(random.choices(string.ascii_lowercase + string.digits, k=length))
             name = f"{base}{rand}"
             try:
-                chatroom = ChatRoom.objects.create(room_id=name, name=name, is_group=False)
+                chatroom = ChatRoom.objects.create(room_id=name, name=name, is_group=False, product=product)
                 chatroom.members.add(current_user, other_user)
-                return Response({"chatroom_id": chatroom.room_id}, status=status.HTTP_200_OK)
+                return Response(
+                    {
+                        "chatroom_id": chatroom.room_id,
+                        "product_id": getattr(chatroom.product, 'pid', '') if getattr(chatroom, 'product', None) else '',
+                        "ad_name": getattr(chatroom, 'ad_name', '') or '',
+                        "ad_image": getattr(chatroom, 'ad_image_url', '') or '',
+                    },
+                    status=status.HTTP_200_OK,
+                )
             except IntegrityError:
                 # Try again with a different suffix length
                 continue

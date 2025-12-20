@@ -333,10 +333,25 @@ class ChatRoomSerializer(serializers.ModelSerializer):
     members = UserSerializer(many=True, read_only=True)
     messages = MessageSerializer(many=True, read_only=True)
     total_unread = serializers.SerializerMethodField(read_only=True)
+    ad_name = serializers.SerializerMethodField(read_only=True)
+    ad_image = serializers.SerializerMethodField(read_only=True)
+    product_id = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ChatRoom
-        fields = ["id", "room_id", "name", "is_group", "members", "messages", "created_at", "total_unread"]
+        fields = [
+            "id",
+            "room_id",
+            "name",
+            "is_group",
+            "product_id",
+            "ad_name",
+            "ad_image",
+            "members",
+            "messages",
+            "created_at",
+            "total_unread",
+        ]
 
     def get_total_unread(self, obj) -> int:
         request = self.context.get("request")
@@ -344,6 +359,17 @@ class ChatRoomSerializer(serializers.ModelSerializer):
         if user and hasattr(obj, "get_total_unread_messages"):
             return obj.get_total_unread_messages(user)
         return 0
+
+    def get_product_id(self, obj) -> str:
+        if getattr(obj, 'product', None):
+            return getattr(obj.product, 'pid', '') or str(obj.product_id)
+        return ''
+
+    def get_ad_name(self, obj) -> str:
+        return getattr(obj, 'ad_name', '') or ''
+
+    def get_ad_image(self, obj) -> str:
+        return getattr(obj, 'ad_image_url', '') or ''
     
 class ReviewSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
@@ -570,6 +596,9 @@ class AdminReinstateCouponRedemptionResponseSerializer(serializers.Serializer):
 
 class ChatroomIdResponseSerializer(serializers.Serializer):
     chatroom_id = serializers.CharField()
+    product_id = serializers.CharField(required=False, allow_blank=True)
+    ad_name = serializers.CharField(required=False, allow_blank=True)
+    ad_image = serializers.CharField(required=False, allow_blank=True)
 
 
 class RedeemReferralResponseSerializer(serializers.Serializer):

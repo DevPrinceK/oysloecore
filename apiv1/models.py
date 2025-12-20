@@ -13,6 +13,7 @@ class ChatRoom(TimeStampedModel):
     # user uuid for the room_id
     room_id = models.CharField(max_length=200, unique=True)
     name = models.CharField(max_length=100, unique=True)
+    product = models.ForeignKey('Product', on_delete=models.SET_NULL, null=True, blank=True, related_name='chatrooms')
     is_group = models.BooleanField(default=False)
     members = models.ManyToManyField(User, related_name='chatrooms')
 
@@ -26,6 +27,30 @@ class ChatRoom(TimeStampedModel):
 
     def __str__(self):
         return self.name
+
+    @property
+    def ad_name(self) -> str:
+        if self.product:
+            return self.product.name
+        return ''
+
+    @property
+    def ad_image_url(self) -> str:
+        if not self.product:
+            return ''
+        if getattr(self.product, 'image', None):
+            try:
+                if self.product.image:
+                    return self.product.image.url
+            except Exception:
+                return ''
+        try:
+            first = self.product.images.first()
+            if first and first.image:
+                return first.image.url
+        except Exception:
+            return ''
+        return ''
 
 class Message(TimeStampedModel):
     '''Messsage model for storing user messages'''

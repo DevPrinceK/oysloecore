@@ -533,6 +533,9 @@ class ChatRoomsConsumer(AsyncWebsocketConsumer):
                 'room_id': room.room_id,
                 'name': room.name,
                 'is_group': room.is_group,
+                'product_id': getattr(room.product, 'pid', '') if getattr(room, 'product', None) else '',
+                'ad_name': getattr(room, 'ad_name', '') or '',
+                'ad_image': getattr(room, 'ad_image_url', '') or '',
                 'unread': room.get_total_unread_messages(self.user),
                 'created_at': room.created_at.isoformat(),
             }
