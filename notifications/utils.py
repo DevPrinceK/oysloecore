@@ -1,34 +1,69 @@
 import array
+import logging
+import os
+
+from django.conf import settings
 from pyfcm import FCMNotification
+
 from .models import FCMDevice
 
-push_service = FCMNotification(
-    service_account_file="notifications/oysloemobile.json",
-    project_id="oysloemobile"
-)
+logger = logging.getLogger(__name__)
 
-def send_push_notification(user, title, message):
+_push_service = None
+
+
+def _get_push_service() -> FCMNotification | None:
+    global _push_service
+    if _push_service is not None:
+        return _push_service
+
+    service_account_file = os.getenv('FCM_SERVICE_ACCOUNT_FILE')
+    if not service_account_file:
+        service_account_file = str(settings.BASE_DIR / 'notifications' / 'oysloemobile.json')
+
+    project_id = os.getenv('FCM_PROJECT_ID') or 'oysloemobile'
+
+    if not os.path.exists(service_account_file):
+        logger.warning(f"FCM service account file not found: {service_account_file}")
+        return None
+
+    _push_service = FCMNotification(
+        service_account_file=service_account_file,
+        project_id=project_id,
+    )
+    return _push_service
+
+
+def send_push_notification(user, title, message, *, data_payload=None):
+    push_service = _get_push_service()
+    if not push_service:
+        return "FCM not configured"
+
     devices = FCMDevice.objects.filter(user=user)
     registration_ids = [device.token for device in devices]
 
     if not registration_ids:
-        print("No devices found for user.")
         return "No devices"
-    
+
     params_list = [
         {
             "fcm_token": token,
             "notification_title": title,
             "notification_body": message,
+            "data_payload": data_payload or {},
         }
         for token in registration_ids
     ]
-    result = push_service.async_notify_multiple_devices(
-        params_list=params_list,
-    )
 
-    print(f"Push notification sent to {len(registration_ids)} devices: {result}")
+    try:
+        result = push_service.async_notify_multiple_devices(
+            params_list=params_list,
+        )
+    except Exception:
+        logger.exception("FCM push send failed")
+        return "FCM send failed"
 
+    logger.info(f"Push notification sent to {len(registration_ids)} devices")
     return result
 
 

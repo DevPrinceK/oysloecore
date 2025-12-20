@@ -4,6 +4,9 @@ db.sqlite3
 schema.yaml
 deployment-config/
 
+# Firebase / FCM service-account keys
+notifications/*.json
+
 # Python bytecode/cache
 __pycache__/
 *.py[cod]

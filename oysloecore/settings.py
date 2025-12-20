@@ -2,19 +2,37 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+# Load environment variables from the project-local .env (kept out of git).
+# This is explicit so it works regardless of the process working directory.
+load_dotenv(dotenv_path=BASE_DIR / 'oysloecore' / '.env')
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "t", "yes", "y", "on"}
+
+
+def _env_csv(name: str, default: list[str] | None = None) -> list[str]:
+    value = os.getenv(name)
+    if value is None:
+        return default or []
+    parts = [p.strip() for p in value.split(',')]
+    return [p for p in parts if p]
+
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-&ah6b=xr6hbx=0l8uy6=3#k$md3t7e(4nidx*tedoek@p)fzap'
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-change-me')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DEBUG", "True")
+DEBUG = _env_bool('DEBUG', default=True)
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = _env_csv('ALLOWED_HOSTS', default=['*'])
 
 
 # Application definition
