@@ -15,6 +15,16 @@ class ChatRoom(TimeStampedModel):
     name = models.CharField(max_length=100, unique=True)
     product = models.ForeignKey('Product', on_delete=models.SET_NULL, null=True, blank=True, related_name='chatrooms')
     is_group = models.BooleanField(default=False)
+    is_closed = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text='If True, members can read history but cannot send new messages.'
+    )
+    is_deleted = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text='Soft-delete flag. Deleted chatrooms are excluded from all chatroom/message retrieval.'
+    )
     members = models.ManyToManyField(User, related_name='chatrooms')
 
     def get_total_unread_messages(self, user):

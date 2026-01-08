@@ -344,6 +344,7 @@ class ChatRoomSerializer(serializers.ModelSerializer):
             "room_id",
             "name",
             "is_group",
+            "is_closed",
             "product_id",
             "ad_name",
             "ad_image",

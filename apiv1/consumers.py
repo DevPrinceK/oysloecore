@@ -91,10 +91,10 @@ class NewChatConsumer(AsyncWebsocketConsumer):
         # Try room_id first (what the REST APIs typically return), then name.
         # Add iexact fallbacks to avoid case/encoding mismatches.
         return (
-            ChatRoom.objects.filter(room_id=normalized).first()
-            or ChatRoom.objects.filter(name=normalized).first()
-            or ChatRoom.objects.filter(room_id__iexact=normalized).first()
-            or ChatRoom.objects.filter(name__iexact=normalized).first()
+            ChatRoom.objects.filter(room_id=normalized, is_deleted=False).first()
+            or ChatRoom.objects.filter(name=normalized, is_deleted=False).first()
+            or ChatRoom.objects.filter(room_id__iexact=normalized, is_deleted=False).first()
+            or ChatRoom.objects.filter(name__iexact=normalized, is_deleted=False).first()
         )
 
     async def disconnect(self, close_code):
@@ -131,6 +131,13 @@ class NewChatConsumer(AsyncWebsocketConsumer):
         elif message:  # Normal chat message
             # Save the message to the database
             saved = await self.save_message(self.room, self.user, message, is_media=is_media)
+            if not saved or (saved or {}).get('error'):
+                await self.send(text_data=json.dumps({
+                    'type': 'error',
+                    'detail': (saved or {}).get('detail', 'Unable to send message'),
+                    'code': (saved or {}).get('code', 'send_failed'),
+                }))
+                return
             timestamp = (saved or {}).get('timestamp', None)
             message_id = (saved or {}).get('id', None)
             # Always broadcast to the room group. The `recipient` field (if present)
@@ -178,6 +185,10 @@ class NewChatConsumer(AsyncWebsocketConsumer):
         from .models import Message
         if not room:
             return
+        if getattr(room, 'is_deleted', False):
+            return {'error': True, 'code': 'chatroom_deleted', 'detail': 'chatroom is deleted'}
+        if getattr(room, 'is_closed', False):
+            return {'error': True, 'code': 'chatroom_closed', 'detail': 'chatroom is closed'}
         msg = Message.objects.create(
             room=room,
             sender=sender,
@@ -313,6 +324,13 @@ class TemChatConsumer(AsyncWebsocketConsumer):
         if message:
             # save and broadcast to room
             saved = await self.save_message(self.room, self.user, message, is_media=is_media)
+            if not saved or (saved or {}).get('error'):
+                await self.send(text_data=json.dumps({
+                    'type': 'error',
+                    'detail': (saved or {}).get('detail', 'Unable to send message'),
+                    'code': (saved or {}).get('code', 'send_failed'),
+                }))
+                return
             timestamp = (saved or {}).get('timestamp', None)
             message_id = (saved or {}).get('id', None)
 
@@ -384,7 +402,7 @@ class TemChatConsumer(AsyncWebsocketConsumer):
             return None
 
         # try to find an existing private chatroom containing both users
-        room = ChatRoom.objects.filter(is_group=False, members=current_user).filter(members=other).first()
+        room = ChatRoom.objects.filter(is_group=False, is_deleted=False, members=current_user).filter(members=other).first()
         if room:
             return room
 
@@ -414,6 +432,10 @@ class TemChatConsumer(AsyncWebsocketConsumer):
         from .models import Message
         if not room:
             return
+        if getattr(room, 'is_deleted', False):
+            return {'error': True, 'code': 'chatroom_deleted', 'detail': 'chatroom is deleted'}
+        if getattr(room, 'is_closed', False):
+            return {'error': True, 'code': 'chatroom_closed', 'detail': 'chatroom is closed'}
         msg = Message.objects.create(
             room=room,
             sender=sender,
@@ -524,7 +546,7 @@ class ChatRoomsConsumer(AsyncWebsocketConsumer):
         """
         from .models import Message
 
-        chatrooms = ChatRoom.objects.filter(members=self.user)
+        chatrooms = ChatRoom.objects.filter(members=self.user, is_deleted=False)
 
         result = []
         for room in chatrooms:
@@ -533,6 +555,7 @@ class ChatRoomsConsumer(AsyncWebsocketConsumer):
                 'room_id': room.room_id,
                 'name': room.name,
                 'is_group': room.is_group,
+                'is_closed': getattr(room, 'is_closed', False),
                 'product_id': getattr(room.product, 'pid', '') if getattr(room, 'product', None) else '',
                 'ad_name': getattr(room, 'ad_name', '') or '',
                 'ad_image': getattr(room, 'ad_image_url', '') or '',
@@ -619,7 +642,7 @@ class UnreadCountConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def get_total_unread_count(self):
         from .models import ChatRoom
-        chatrooms = ChatRoom.objects.filter(members=self.user)
+        chatrooms = ChatRoom.objects.filter(members=self.user, is_deleted=False)
         total = 0
         for room in chatrooms:
             total += room.get_total_unread_messages(self.user)

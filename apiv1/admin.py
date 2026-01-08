@@ -13,9 +13,9 @@ admin.site.index_title = "Welcome to the Oysloecore Admin Portal"
 
 @admin.register(ChatRoom)
 class ChatRoomAdmin(admin.ModelAdmin):
-	list_display = ('id', 'room_id', 'name', 'product', 'is_group', 'created_at')
+	list_display = ('id', 'room_id', 'name', 'product', 'is_group', 'is_closed', 'is_deleted', 'created_at')
 	search_fields = ('name', 'room_id', 'members__email', 'members__name')
-	list_filter = ('is_group', 'created_at')
+	list_filter = ('is_group', 'is_closed', 'is_deleted', 'created_at')
 	ordering = ('-created_at',)
 	filter_horizontal = ('members',)
 

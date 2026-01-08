@@ -693,7 +693,7 @@ class MessageViewSet(viewsets.ReadOnlyModelViewSet):
         if getattr(self, 'swagger_fake_view', False):  # pragma: no cover
             return Message.objects.none()
         user = self.request.user
-        return Message.objects.filter(room__members=user).order_by('-created_at')
+        return Message.objects.filter(room__members=user, room__is_deleted=False).order_by('-created_at')
 
 
 class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
@@ -703,7 +703,7 @@ class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):  # pragma: no cover
             return ChatRoom.objects.none()
-        return ChatRoom.objects.filter(members=self.request.user).order_by('-created_at')
+        return ChatRoom.objects.filter(members=self.request.user, is_deleted=False).order_by('-created_at')
 
     @action(detail=True, methods=['get'])
     def messages(self, request, pk=None):
@@ -714,6 +714,8 @@ class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=['post'])
     def send(self, request, pk=None):
         room = self.get_object()
+        if getattr(room, 'is_closed', False):
+            return Response({'detail': 'chatroom is closed'}, status=status.HTTP_403_FORBIDDEN)
         content = request.data.get('message') or request.data.get('content')
         raw_is_media = request.data.get('is_media', request.data.get('isMedia', False))
         if isinstance(raw_is_media, str):
@@ -730,6 +732,60 @@ class ChatRoomViewSet(viewsets.ReadOnlyModelViewSet):
         room = self.get_object()
         room.read_all_messages(request.user)
         return Response({'status': 'ok'})
+
+    @action(detail=True, methods=['post'], url_path='close', permission_classes=[permissions.IsAdminUser])
+    def close_chatroom(self, request, pk=None):
+        """Admin-only close chatroom."""
+        room = ChatRoom.objects.filter(pk=pk).first()
+        if not room:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if getattr(room, 'is_deleted', False):
+            return Response({'detail': 'chatroom is deleted'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not getattr(room, 'is_closed', False):
+            room.is_closed = True
+            room.save(update_fields=['is_closed'])
+        return Response({'status': 'ok', 'id': room.id, 'is_closed': room.is_closed, 'is_deleted': room.is_deleted})
+
+    @action(detail=True, methods=['post'], url_path='delete', permission_classes=[permissions.IsAdminUser])
+    def delete_chatroom(self, request, pk=None):
+        """Admin-only soft delete."""
+        room = ChatRoom.objects.filter(pk=pk).first()
+        if not room:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not getattr(room, 'is_deleted', False):
+            room.is_deleted = True
+            room.save(update_fields=['is_deleted'])
+
+        return Response({'status': 'ok', 'id': room.id, 'is_closed': room.is_closed, 'is_deleted': room.is_deleted})
+
+    @action(detail=True, methods=['post'], url_path='reopen', permission_classes=[permissions.IsAdminUser])
+    def reopen_chatroom(self, request, pk=None):
+        """Admin-only reopen chatroom (undo close)."""
+        room = ChatRoom.objects.filter(pk=pk).first()
+        if not room:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if getattr(room, 'is_deleted', False):
+            return Response({'detail': 'chatroom is deleted'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if getattr(room, 'is_closed', False):
+            room.is_closed = False
+            room.save(update_fields=['is_closed'])
+        return Response({'status': 'ok', 'id': room.id, 'is_closed': room.is_closed, 'is_deleted': room.is_deleted})
+
+    @action(detail=True, methods=['post'], url_path='restore', permission_classes=[permissions.IsAdminUser])
+    def restore_chatroom(self, request, pk=None):
+        """Admin-only restore chatroom (undo soft delete)."""
+        room = ChatRoom.objects.filter(pk=pk).first()
+        if not room:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if getattr(room, 'is_deleted', False):
+            room.is_deleted = False
+            room.save(update_fields=['is_deleted'])
+
+        return Response({'status': 'ok', 'id': room.id, 'is_closed': room.is_closed, 'is_deleted': room.is_deleted})
 
 
 class CouponViewSet(viewsets.ModelViewSet):
