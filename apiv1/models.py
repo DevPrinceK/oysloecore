@@ -4,6 +4,7 @@ from accounts.models import User
 from oysloecore.sysutils.constants import ProductStatus, ProductStatus, ProductType, Regions
 from oysloecore.sysutils.models import TimeStampedModel
 from django.utils import timezone
+from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import transaction
 
@@ -48,16 +49,46 @@ class ChatRoom(TimeStampedModel):
     def ad_image_url(self) -> str:
         if not self.product:
             return ''
+        # Prefer the product's primary image field.
+        # This may now be a URL string (URLField) or, for legacy data, a File/Image instance.
         if getattr(self.product, 'image', None):
             try:
-                if self.product.image:
-                    return self.product.image.url
+                # If it is an Image/File, attempt to resolve the storage URL
+                if getattr(self.product.image, 'url', None):
+                    return self.product.image.url  # type: ignore[attr-defined]
             except Exception:
-                return ''
+                pass
+            # Otherwise treat as a plain URL string
+            try:
+                img_val = str(self.product.image).strip()
+                if img_val:
+                    # If it's not an absolute URL, prefix MEDIA_URL for backward compatibility
+                    if not (img_val.lower().startswith('http://') or img_val.lower().startswith('https://')):
+                        base = (getattr(settings, 'MEDIA_URL', '') or '').rstrip('/')
+                        if base:
+                            return f"{base}/{img_val.lstrip('/')}"
+                    return img_val
+            except Exception:
+                pass
         try:
             first = self.product.images.first()
             if first and first.image:
-                return first.image.url
+                # first.image may be a URL string now; still support legacy File types.
+                try:
+                    if getattr(first.image, 'url', None):
+                        return first.image.url  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                try:
+                    img_val = str(first.image).strip()
+                    if img_val:
+                        if not (img_val.lower().startswith('http://') or img_val.lower().startswith('https://')):
+                            base = (getattr(settings, 'MEDIA_URL', '') or '').rstrip('/')
+                            if base:
+                                return f"{base}/{img_val.lstrip('/')}"
+                        return img_val
+                except Exception:
+                    pass
         except Exception:
             return ''
         return ''
@@ -84,7 +115,8 @@ class Product(TimeStampedModel):
 
     pid = models.CharField(max_length=20, unique=True, default=generate_pid)
     name = models.CharField(max_length=100)
-    image = models.ImageField(upload_to='product_images/', null=True, blank=True)
+    # image = models.ImageField(upload_to='product_images/', null=True, blank=True)
+    image = models.URLField(max_length=800, null=True, blank=True)
     category = models.ForeignKey('Category', on_delete=models.SET_NULL, null=True, blank=True)  
     location = models.ForeignKey('Location', on_delete=models.SET_NULL, null=True, blank=True)
     type = models.CharField(max_length=100, choices=[(tag.value, tag.value) for tag in ProductType], default=ProductType.SALE.value)
@@ -98,8 +130,46 @@ class Product(TimeStampedModel):
     
     @property
     def all_images(self):
-        images = ProductImage.objects.filter(product__pid=self.pid)
-        return [img.image.url for img in images]
+        # Return a list of URLs, preferring the primary image first when available.
+        urls: list[str] = []
+        # Include primary image if set
+        try:
+            if getattr(self, 'image', None):
+                if getattr(self.image, 'url', None):
+                    urls.append(self.image.url)  # type: ignore[attr-defined]
+                else:
+                    img_val = str(self.image).strip()
+                    if img_val:
+                        if not (img_val.lower().startswith('http://') or img_val.lower().startswith('https://')):
+                            base = (getattr(settings, 'MEDIA_URL', '') or '').rstrip('/')
+                            if base:
+                                urls.append(f"{base}/{img_val.lstrip('/')}")
+                            else:
+                                urls.append(img_val)
+                        else:
+                            urls.append(img_val)
+        except Exception:
+            pass
+
+        # Append additional images from ProductImage
+        try:
+            for img in ProductImage.objects.filter(product__pid=self.pid):
+                try:
+                    if img.image and getattr(img.image, 'url', None):
+                        urls.append(img.image.url)  # type: ignore[attr-defined]
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        # De-duplicate while preserving order
+        seen = set()
+        deduped = []
+        for u in urls:
+            if u and u not in seen:
+                seen.add(u)
+                deduped.append(u)
+        return deduped
 
     def __str__(self):
         return self.name
@@ -107,7 +177,7 @@ class Product(TimeStampedModel):
 class ProductImage(TimeStampedModel):
     '''Model to store multiple images for a product'''
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='images')
-    image = models.ImageField(upload_to='product_images/')
+    image = models.URLField(max_length=800)
 
     def __str__(self):
         return f"{self.product.name} Image"
