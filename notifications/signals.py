@@ -5,7 +5,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.conf import settings
 
-from apiv1.models import Message
+from apiv1.models import Message, UserSubscription
 
 from .models import Alert
 from .utils import send_push_notification, send_sms
@@ -97,3 +97,43 @@ def send_chat_message_push_notification(sender, instance: Message, created: bool
     except Exception:
         # Never fail message creation due to push issues.
         logger.exception('Failed to process chat message push notifications')
+
+
+@receiver(post_save, sender=UserSubscription)
+def send_subscription_created_alert(sender, instance: UserSubscription, created: bool, **kwargs):
+    """Notify users when a subscription is created for them.
+
+    We create an in-app Alert; the Alert signal handles push + SMS best-effort.
+    """
+    if not created:
+        return
+
+    try:
+        user = getattr(instance, 'user', None)
+        subscription = getattr(instance, 'subscription', None)
+        if not user or not getattr(user, 'pk', None) or not subscription:
+            return
+
+        title = 'Subscription activated'
+        end_date = getattr(instance, 'end_date', None)
+        end_str = ''
+        if end_date:
+            try:
+                end_str = end_date.strftime('%Y-%m-%d')
+            except Exception:
+                end_str = ''
+
+        plan_name = (getattr(subscription, 'name', None) or '').strip() or 'your plan'
+        body = f"Congratulations! \nYou have successfully activated your {plan_name} subscription."
+        if end_str:
+            body = f"{body} Valid until {end_str}."
+
+        Alert.objects.create(
+            user=user,
+            title=title,
+            body=body,
+            kind='SUBSCRIPTION_CREATED',
+        )
+    except Exception:
+        # Never fail subscription creation because of notification issues.
+        logger.exception('Failed to create subscription alert')

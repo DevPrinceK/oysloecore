@@ -1,6 +1,6 @@
-import array
 import logging
 import os
+from collections.abc import Sequence
 
 from django.conf import settings as dj_settings
 from pyfcm import FCMNotification
@@ -115,22 +115,59 @@ def send_mail(receipient: list, subject: str, message: str) -> None:
 import requests
 
 
-def send_sms(message: str, recipients: array.array, sender: str | None = None):
-    '''Sends an SMS to the specified recipients'''
-    sender = sender or getattr(dj_settings, 'SENDER_ID', None)
-    header = {"api-key": getattr(dj_settings, 'ARKESEL_API_KEY', ''), 'Content-Type': 'application/json',
-              'Accept': 'application/json'}
-    SEND_SMS_URL = "https://sms.arkesel.com/api/v2/sms/send"
-    payload = {
-        "sender": sender,
-        "message": message,
-        "recipients": recipients
-    } 
-    try:
-        response = requests.post(SEND_SMS_URL, headers=header, json=payload)
-    except Exception as e:
-        print(f"Error: {e}")
+def send_sms(
+    *args,
+    message: str | None = None,
+    recipients: Sequence[str] | None = None,
+    sender: str | None = None,
+):
+    """Send an SMS via Arkesel.
+
+    Supports both call styles used in this repo:
+    - Legacy: send_sms(<recipient_phone>, <message>)
+    - Preferred: send_sms(message=<message>, recipients=[<recipient_phone>, ...])
+    """
+    # Backward-compatible positional form: (recipient, message)
+    if args:
+        if len(args) == 2 and message is None and recipients is None:
+            recipient_phone, legacy_message = args
+            recipients = [str(recipient_phone)]
+            message = str(legacy_message)
+        else:
+            raise TypeError('send_sms expects (recipient, message) or keyword args message=..., recipients=[...]')
+
+    msg = (message or '').strip()
+    if not msg:
         return False
-    else:
-        print(response.json())
-        return response.json()
+
+    recips = [str(r).strip() for r in (recipients or []) if str(r).strip()]
+    if not recips:
+        return False
+
+    api_key = getattr(dj_settings, 'ARKESEL_API_KEY', '')
+    if not api_key:
+        logger.warning('ARKESEL_API_KEY not configured; skipping SMS send')
+        return False
+
+    sender = sender or getattr(dj_settings, 'SENDER_ID', None)
+    header = {
+        'api-key': api_key,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+    }
+    send_sms_url = "https://sms.arkesel.com/api/v2/sms/send"
+    payload = {
+        'sender': sender,
+        'message': msg,
+        'recipients': recips,
+    }
+
+    try:
+        response = requests.post(send_sms_url, headers=header, json=payload, timeout=10)
+        try:
+            return response.json()
+        except Exception:
+            return {'ok': response.ok, 'status_code': response.status_code, 'text': response.text}
+    except Exception:
+        logger.exception('SMS send failed')
+        return False
