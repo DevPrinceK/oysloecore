@@ -1272,6 +1272,56 @@ class PaystackPaymentViewSet(viewsets.ViewSet):
 
         amount = self._get_amount_for_subscription(subscription)
 
+        headers = {
+            'Authorization': f"Bearer {settings.PAYSTACK_SECRET_KEY}",
+            'Content-Type': 'application/json',
+        }
+        payload = {
+            'email': user.email,
+            'amount': amount,
+        }
+        if callback_url:
+            payload['callback_url'] = callback_url
+
+        init_url = f"{getattr(settings, 'PAYSTACK_BASE_URL', 'https://api.paystack.co')}/transaction/initialize"
+        try:
+            resp = requests.post(init_url, json=payload, headers=headers, timeout=10)
+            data = resp.json()
+        except Exception as exc:
+            return Response({'detail': f'Error communicating with Paystack: {exc}'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        if not resp.ok or not data.get('status'):
+            return Response({'detail': 'Failed to initialize Paystack transaction', 'response': data}, status=status.HTTP_400_BAD_REQUEST)
+
+        paystack_data = data.get('data') or {}
+        reference = paystack_data.get('reference')
+        authorization_url = paystack_data.get('authorization_url')
+
+        if not reference or not authorization_url:
+            return Response({'detail': 'Invalid response from Paystack', 'response': data}, status=status.HTTP_502_BAD_GATEWAY)
+
+        # Create a pending payment record
+        payment = Payment.objects.create(
+            user=user,
+            subscription=subscription,
+            amount=amount / 100,
+            currency='GHS',
+            provider='paystack',
+            reference=reference,
+            status=Payment.STATUS_PENDING,
+            raw_response=data,
+        )
+
+        return Response(
+            {
+                'authorization_url': authorization_url,
+                'reference': reference,
+                'payment_id': payment.id,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
     @extend_schema(
         request=PaystackPaymentStatusRequestSerializer,
         responses={
@@ -1344,56 +1394,27 @@ class PaystackPaymentViewSet(viewsets.ViewSet):
         payment.raw_response = verify_data
         payment.save(update_fields=['status', 'channel', 'raw_response', 'updated_at'])
 
+        # If payment succeeded, ensure the matching UserSubscription exists (idempotent)
+        if payment.status == Payment.STATUS_SUCCESS:
+            subscription = getattr(payment, 'subscription', None)
+            pay_user = getattr(payment, 'user', None)
+            if subscription and pay_user:
+                # Avoid creating duplicates if this status endpoint is called multiple times
+                if not UserSubscription.objects.filter(payment=payment).exists():
+                    from django.utils import timezone as dj_timezone
+                    start = dj_timezone.now()
+                    end = start + dj_timezone.timedelta(days=subscription.duration_days)
+                    UserSubscription.objects.create(
+                        user=pay_user,
+                        subscription=subscription,
+                        payment=payment,
+                        start_date=start,
+                        end_date=end,
+                        is_active=True,
+                    )
+
         return Response(PaymentSerializer(payment, context={'request': request}).data, status=status.HTTP_200_OK)
-        headers = {
-            'Authorization': f"Bearer {settings.PAYSTACK_SECRET_KEY}",
-            'Content-Type': 'application/json',
-        }
-        payload = {
-            'email': user.email,
-            'amount': amount,
-        }
-        if callback_url:
-            payload['callback_url'] = callback_url
-
-        init_url = f"{getattr(settings, 'PAYSTACK_BASE_URL', 'https://api.paystack.co')}/transaction/initialize"
-        try:
-            resp = requests.post(init_url, json=payload, headers=headers, timeout=10)
-            data = resp.json()
-        except Exception as exc:
-            return Response({'detail': f'Error communicating with Paystack: {exc}'}, status=status.HTTP_502_BAD_GATEWAY)
-
-        if not resp.ok or not data.get('status'):
-            return Response({'detail': 'Failed to initialize Paystack transaction', 'response': data}, status=status.HTTP_400_BAD_REQUEST)
-
-        paystack_data = data.get('data') or {}
-        reference = paystack_data.get('reference')
-        authorization_url = paystack_data.get('authorization_url')
-
-        if not reference or not authorization_url:
-            return Response({'detail': 'Invalid response from Paystack', 'response': data}, status=status.HTTP_502_BAD_GATEWAY)
-
-        # Create a pending payment record
-        payment = Payment.objects.create(
-            user=user,
-            subscription=subscription,
-            amount=amount / 100,
-            currency='GHS',
-            provider='paystack',
-            reference=reference,
-            status=Payment.STATUS_PENDING,
-            raw_response=data,
-        )
-
-        return Response(
-            {
-                'authorization_url': authorization_url,
-                'reference': reference,
-                'payment_id': payment.id,
-            },
-            status=status.HTTP_201_CREATED,
-        )
-
+        
     
     @extend_schema(
         auth=[],
