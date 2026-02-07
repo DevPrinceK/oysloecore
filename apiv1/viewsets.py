@@ -62,6 +62,8 @@ class PaystackWebhookRequestSerializer(serializers.Serializer):
 
 class PaystackWebhookResponseSerializer(serializers.Serializer):
     status = serializers.CharField()
+class PaystackPaymentStatusRequestSerializer(serializers.Serializer):
+    payment_id = serializers.IntegerField()
 
 
 class IsAuthenticated(permissions.IsAuthenticated):
@@ -1270,6 +1272,79 @@ class PaystackPaymentViewSet(viewsets.ViewSet):
 
         amount = self._get_amount_for_subscription(subscription)
 
+    @extend_schema(
+        request=PaystackPaymentStatusRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=PaymentSerializer, description='Updated payment record.'),
+            400: ErrorDetailSerializer,
+            403: ErrorDetailSerializer,
+            404: ErrorDetailSerializer,
+            502: ErrorDetailSerializer,
+        },
+        operation_id='paystack_check_payment_status',
+        description=(
+            'Check a payment status by Payment id. Uses the stored Paystack reference to '
+            'verify against Paystack and updates the local Payment.status accordingly.'
+        ),
+        examples=[
+            OpenApiExample(
+                'Status check request',
+                value={'payment_id': 10},
+                request_only=True,
+            ),
+        ],
+    )
+    @action(detail=False, methods=['post'], url_path='status')
+    def status(self, request):
+        """Check Paystack status for a payment and update local status."""
+        body = PaystackPaymentStatusRequestSerializer(data=request.data)
+        if not body.is_valid():
+            return Response(body.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        payment_id = body.validated_data['payment_id']
+        payment = Payment.objects.select_related('user', 'subscription').filter(id=payment_id).first()
+        if not payment:
+            return Response({'detail': 'Payment not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Access control: users can check only their own payments; staff can check any.
+        if not getattr(request.user, 'is_staff', False) and getattr(payment, 'user_id', None) != getattr(request.user, 'id', None):
+            return Response({'detail': 'Forbidden'}, status=status.HTTP_403_FORBIDDEN)
+
+        reference = getattr(payment, 'reference', None)
+        if not reference:
+            return Response({'detail': 'Payment has no reference to verify'}, status=status.HTTP_400_BAD_REQUEST)
+
+        secret_key = settings.PAYSTACK_SECRET_KEY
+        verify_url = f"{getattr(settings, 'PAYSTACK_BASE_URL', 'https://api.paystack.co')}/transaction/verify/{reference}"
+        headers = {'Authorization': f"Bearer {secret_key}"}
+
+        try:
+            resp = requests.get(verify_url, headers=headers, timeout=10)
+            verify_data = resp.json()
+        except Exception as exc:
+            return Response({'detail': f'Error verifying transaction: {exc}'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        provider_ok = bool(resp.ok and verify_data.get('status'))
+        provider_payload = verify_data.get('data') or {}
+        provider_status = (provider_payload.get('status') or '').lower()
+
+        # Update local payment status based on provider status
+        if provider_ok and provider_status == 'success':
+            payment.status = Payment.STATUS_SUCCESS
+        elif provider_ok and provider_status in {'failed', 'abandoned', 'cancelled'}:
+            payment.status = Payment.STATUS_FAILED
+        elif provider_ok and provider_status:
+            # e.g. "ongoing", "pending", etc.
+            payment.status = Payment.STATUS_PENDING
+        else:
+            # If the verification call is not successful, do not guess success.
+            payment.status = Payment.STATUS_FAILED
+
+        payment.channel = provider_payload.get('channel') or getattr(payment, 'channel', None)
+        payment.raw_response = verify_data
+        payment.save(update_fields=['status', 'channel', 'raw_response', 'updated_at'])
+
+        return Response(PaymentSerializer(payment, context={'request': request}).data, status=status.HTTP_200_OK)
         headers = {
             'Authorization': f"Bearer {settings.PAYSTACK_SECRET_KEY}",
             'Content-Type': 'application/json',
