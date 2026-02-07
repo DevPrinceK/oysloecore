@@ -2,6 +2,7 @@ import requests
 import threading
 from uuid import uuid4
 from rest_framework import permissions, viewsets, status, filters
+from rest_framework import serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -29,11 +30,38 @@ from accounts.models import Wallet, WalletCashoutRequest
 from django.db import transaction, models
 from django.utils import timezone
 from django.contrib.auth import get_user_model
-from drf_spectacular.utils import extend_schema, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiExample, OpenApiResponse
 from oysloecore.sysutils.constants import ProductStatus
 from notifications.models import Alert
 from django.conf import settings
 from notifications import utils as notification_utils
+
+
+class ErrorDetailSerializer(serializers.Serializer):
+    detail = serializers.CharField()
+    # For upstream provider payload passthrough (e.g., Paystack error response)
+    response = serializers.JSONField(required=False)
+
+
+class PaystackInitiateRequestSerializer(serializers.Serializer):
+    subscription_id = serializers.IntegerField()
+    callback_url = serializers.URLField(required=False, allow_blank=True)
+
+
+class PaystackInitiateResponseSerializer(serializers.Serializer):
+    authorization_url = serializers.URLField()
+    reference = serializers.CharField()
+    payment_id = serializers.IntegerField()
+
+
+class PaystackWebhookRequestSerializer(serializers.Serializer):
+    # Paystack sends more fields, but we only require these for our handler.
+    event = serializers.CharField(required=False)
+    data = serializers.JSONField(required=False)
+
+
+class PaystackWebhookResponseSerializer(serializers.Serializer):
+    status = serializers.CharField()
 
 
 class IsAuthenticated(permissions.IsAuthenticated):
@@ -1198,6 +1226,30 @@ class PaystackPaymentViewSet(viewsets.ViewSet):
         amount = subscription.get_effective_price() if hasattr(subscription, 'get_effective_price') else subscription.price
         return int(amount * 100)  # Paystack expects amount in kobo/pesewas
 
+    
+    @extend_schema(
+        request=PaystackInitiateRequestSerializer,
+        responses={
+            201: PaystackInitiateResponseSerializer,
+            400: ErrorDetailSerializer,
+            404: ErrorDetailSerializer,
+            502: ErrorDetailSerializer,
+        },
+        operation_id='paystack_initiate_payment',
+        description='Initiate a Paystack payment for a subscription and return the authorization URL.',
+        examples=[
+            OpenApiExample(
+                'Initiate request',
+                value={'subscription_id': 1, 'callback_url': 'https://example.com/paystack/callback'},
+                request_only=True,
+            ),
+            OpenApiExample(
+                'Initiate response',
+                value={'authorization_url': 'https://checkout.paystack.com/abc123', 'reference': 'ref_123', 'payment_id': 10},
+                response_only=True,
+            ),
+        ],
+    )
     @action(detail=False, methods=['post'], url_path='initiate')
     def initiate(self, request):
         """Initiate a Paystack payment for a subscription.
@@ -1205,11 +1257,11 @@ class PaystackPaymentViewSet(viewsets.ViewSet):
         Expects: {"subscription_id": <id>, "callback_url": "https://..."}
         """
         user = request.user
-        subscription_id = request.data.get('subscription_id')
-        callback_url = request.data.get('callback_url')
-
-        if not subscription_id:
-            return Response({'detail': 'subscription_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        body = PaystackInitiateRequestSerializer(data=request.data)
+        if not body.is_valid():
+            return Response(body.errors, status=status.HTTP_400_BAD_REQUEST)
+        subscription_id = body.validated_data['subscription_id']
+        callback_url = body.validated_data.get('callback_url')
 
         try:
             subscription = Subscription.objects.get(id=subscription_id, is_active=True)
@@ -1267,6 +1319,40 @@ class PaystackPaymentViewSet(viewsets.ViewSet):
             status=status.HTTP_201_CREATED,
         )
 
+    
+    @extend_schema(
+        auth=[],
+        request=PaystackWebhookRequestSerializer,
+        responses={
+            200: PaystackWebhookResponseSerializer,
+            400: ErrorDetailSerializer,
+            404: ErrorDetailSerializer,
+            502: ErrorDetailSerializer,
+        },
+        operation_id='paystack_webhook',
+        description=(
+            'Paystack webhook to confirm payments and create UserSubscriptions. '
+            'Paystack will POST various event payloads; this endpoint minimally requires '
+            '`data.reference` to process the payment.'
+        ),
+        examples=[
+            OpenApiExample(
+                'Webhook payload example',
+                value={'event': 'charge.success', 'data': {'reference': 'ref_123'}},
+                request_only=True,
+            ),
+            OpenApiExample(
+                'Webhook success response',
+                value={'status': 'success'},
+                response_only=True,
+            ),
+            OpenApiExample(
+                'Webhook ignored response',
+                value={'status': 'ignored'},
+                response_only=True,
+            ),
+        ],
+    )
     @action(detail=False, methods=['post'], url_path='webhook', permission_classes=[])
     def webhook(self, request):
         """Paystack webhook to confirm payments and create UserSubscriptions.
